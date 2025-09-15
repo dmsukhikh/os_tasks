@@ -1,6 +1,6 @@
 .PHONY: all clean
 
-FLAGS = -Wall -Wextra
+FLAGS = -Wall -Wextra -O2
 
 all: main
 
