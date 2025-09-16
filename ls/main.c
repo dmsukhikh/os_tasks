@@ -8,29 +8,9 @@
 #include <stdint.h>
 #include <pwd.h>
 #include <grp.h>
+#include <time.h>
 
 // TODO: make error checks for every syscalls
-
-struct _pwd_context
-{
-    struct passwd data;
-    struct passwd *res;
-    char *buf;
-};
-typedef struct _pwd_context pwd_context_t; 
-const int _PWD_BUFSIZE = 65536;
-pwd_context_t pwd_context;
-
-struct _grp_context
-{
-    struct group data;
-    struct group *res;
-    char *buf;
-};
-const int _GRP_BUFSIZE = 65536;
-typedef struct _grp_context grp_context_t;
-grp_context_t grp_context;
-
 
 enum LS_ARGS
 {
@@ -41,6 +21,7 @@ enum LS_ARGS
 
 const char *_OPLIST = "hla";
 const char *_RWX = "rwx";
+const int _PWD_BUFSIZE = 65536;
 DIR *_dir = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
@@ -173,11 +154,23 @@ void _print_file(struct dirent *file)
         }
         putchar(' ');
 
-        // hard links, groups, size
-        //
-        // printf("%lu %s %s %lu ", file_info.st_nlink, pwd_file->pw_name,
-        //        grp_file->gr_name, file_info.st_size);
+        struct passwd *pwd_file = getpwuid(file_info.st_uid);
 
+        // valgrind reports about a memory leak here 
+        struct group *grp_file = getgrgid(file_info.st_gid);
+
+        // hard links, groups, size
+        printf("%lu %s %s %lu ", file_info.st_nlink, pwd_file->pw_name,
+               grp_file->gr_name, file_info.st_size);
+
+        // time 
+        char *time_str = ctime(&file_info.st_mtim.tv_sec); 
+        char output_time_str[13];
+        strncpy(output_time_str, time_str + 4, 12); 
+        output_time_str[12] = '\0';
+        printf("%s ", output_time_str);
+
+        // name 
         printf("%s\n", file->d_name); 
     }
     else // short output
