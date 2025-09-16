@@ -18,17 +18,24 @@ enum LS_ARGS
     LS_LONG = 2
 };
 
+enum COLORS
+{
+    COL_FILE,
+    COL_DIR,
+    COL_EXEC,
+    COL_LN
+};
+
+const int _COL_CODES[] = {39, 34, 32, 36};
 
 const char *_OPLIST = "hla";
 const char *_RWX = "rwx";
-const int _PWD_BUFSIZE = 65536;
 DIR *_dir = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
 void _list_routine(const char *dir);
 void _close_dir_at_exit();
 void _print_file(struct dirent* file);
-void _free_pwd_buf_at_exit();
 
 
 int main(int argc, char **argv)
@@ -114,6 +121,11 @@ void _list_routine(const char *dir)
 
 void _print_file(struct dirent *file)
 {
+    enum COLORS filename_color = COL_FILE;
+
+    struct stat file_info;
+    lstat(file->d_name, &file_info);
+
     if (file->d_name[0] == '.' && !(flags & LS_ALL))
     {
         return;
@@ -121,17 +133,21 @@ void _print_file(struct dirent *file)
 
     if (flags & LS_LONG) // long output
     {
-        struct stat file_info;
-        lstat(file->d_name, &file_info);
-
         // type of the file
+
         if (S_ISREG(file_info.st_mode))
         {
             putchar('-');
+            // check whether the file is executable
+            if (file_info.st_mode & S_IXUSR)
+            {
+                filename_color = COL_EXEC;
+            }
         }
         else if (S_ISDIR(file_info.st_mode))
         {
             putchar('d');
+            filename_color = COL_DIR;
         }
         else if (S_ISBLK(file_info.st_mode))
         {
@@ -140,6 +156,7 @@ void _print_file(struct dirent *file)
         else if (S_ISLNK(file_info.st_mode))
         {
             putchar('l');
+            filename_color = COL_LN;
         }
         else // another files: fifo's, sockets and so on
         {
@@ -171,11 +188,23 @@ void _print_file(struct dirent *file)
         printf("%s ", output_time_str);
 
         // name 
-        printf("%s\n", file->d_name); 
+        printf("\x1b[;%dm%s\x1b[0m\n", _COL_CODES[filename_color], file->d_name);
     }
     else // short output
     {
-        printf("%s  ", file->d_name);
+        if (S_ISREG(file_info.st_mode) && (file_info.st_mode & S_IXUSR))
+        {
+            filename_color = COL_EXEC;
+        }
+        else if (S_ISDIR(file_info.st_mode))
+        {
+            filename_color = COL_DIR;
+        }
+        else if (S_ISLNK(file_info.st_mode))
+        {
+            filename_color = COL_LN;
+        }
+        printf("\x1b[;%dm%s\x1b[0m  ", _COL_CODES[filename_color], file->d_name);
     }
 }
 
