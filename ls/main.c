@@ -10,8 +10,6 @@
 #include <grp.h>
 #include <time.h>
 
-// TODO: make error checks for every syscalls
-
 enum LS_ARGS
 {
     LS_ALL = 1,
@@ -65,6 +63,8 @@ const int _PATH_SIZE = 4048;
 char * _path = NULL;
 
 DIR *_dir = NULL;
+size_t _files_list_size = 0;
+struct dirent ** _files_list = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
 void _list_routine(const char *dir);
@@ -74,6 +74,9 @@ void _invoke_error(enum ERRCODES);
 void _my_ls_init();
 void _free_path_at_exit();
 void _prepare_path(const char * file);
+void _prepare_files_list();
+void _free_files_list_at_exit();
+int _dirent_cmp(const void* a, const void* b);
 
 
 int main(int argc, char **argv)
@@ -136,15 +139,13 @@ void _list_routine(const char *dir)
 
     // scanning directories
     errno = 0; // for detecting error in readdir()
-    for (struct dirent *cur_file; (cur_file = readdir(_dir)) != NULL; )
+
+    _prepare_files_list();
+    for (size_t i = 0; i < _files_list_size; ++i)
     {
-        _print_file(cur_file); 
+        _print_file(_files_list[i]);
     }
 
-    if (errno != 0)
-    {
-        _invoke_error(ERR_READDIR);
-    }
 
     // after printing files without LS_LONG flag there is no '\n' at the end of
     // the stdout
@@ -341,4 +342,39 @@ void _prepare_path(const char * file)
     strcat(_path, _prefix);
     strcat(_path, "/");
     strcat(_path, file);
+}
+
+void _prepare_files_list()
+{
+    errno = 0;
+    for (struct dirent *cur_file; (cur_file = readdir(_dir)) != NULL;
+         _files_list_size++)
+        ;
+
+    if (errno)
+    {
+        _invoke_error(ERR_READDIR);
+    }
+
+    printf("%zu\n", _files_list_size);
+    _files_list =
+        (struct dirent **)malloc(_files_list_size * sizeof(struct dirent *));
+    atexit(_free_files_list_at_exit);
+
+    rewinddir(_dir);
+
+    int i = 0;
+    for (struct dirent *cur_file; (cur_file = readdir(_dir)) != NULL;
+         _files_list[i++] = cur_file)
+        ;
+
+    qsort(_files_list, _files_list_size, sizeof(struct dirent *), _dirent_cmp);
+}
+
+void _free_files_list_at_exit() { free(_files_list); }
+
+int _dirent_cmp(const void *a, const void *b)
+{
+    struct dirent *f = *(struct dirent **)a, *s = *(struct dirent **)b;
+    return strcmp(f->d_name, s->d_name);
 }
