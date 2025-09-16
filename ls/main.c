@@ -26,25 +26,63 @@ enum COLORS
     COL_LN
 };
 
+enum ERRCODES
+{
+    ERR_NEARGS,
+    ERR_INVALIDOPT,
+    ERR_FILE_ISNT_SPEC,
+    ERR_OPENDIR,
+    ERR_READDIR,
+    ERR_STAT,
+    ERR_PWD,
+    ERR_GRP
+};
+
+// union aligns
+// {
+//     struct
+//     {
+//         char link;
+//         char user;
+//         char group;
+//         char size;
+//         char name;
+//     } long_al;
+//
+//     struct
+//     {
+//         char     
+//     };
+// };
+
 const int _COL_CODES[] = {39, 34, 32, 36};
 
-const char *_OPLIST = "hla";
-const char *_RWX = "rwx";
+const char * const _OPLIST = "hla";
+const char * const _RWX = "rwx";
+const char * _prefix = NULL;
+
+const int _PATH_SIZE = 4048;
+char * _path = NULL;
+
 DIR *_dir = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
 void _list_routine(const char *dir);
 void _close_dir_at_exit();
 void _print_file(struct dirent* file);
+void _invoke_error(enum ERRCODES);
+void _my_ls_init();
+void _free_path_at_exit();
+void _prepare_path(const char * file);
 
 
 int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        fprintf(stderr, "[ls]: Not enough args! Usage: ls -h\n");
-        exit(EXIT_FAILURE);
+        _invoke_error(ERR_NEARGS);
     }
+    _my_ls_init();
 
     // --- option parser ---
     opterr = 0; // don't print error from getopt()
@@ -57,7 +95,7 @@ int main(int argc, char **argv)
                 printf("ls - list directory contents\n"
                        "usage: ls [params...] [file]\n"
                        " -a - do not ignore entries starting with \".\"\n"
-                       " -l - use a long listing format?\n"
+                       " -l - use a long listing format\n"
                        " -h - print this message\n---\n"
                        "mireaaaa\n");
                 exit(EXIT_SUCCESS);
@@ -69,16 +107,14 @@ int main(int argc, char **argv)
                 flags |= LS_ALL;
                 break;
             default: 
-                fprintf(stderr, "[ls]: Error: invalid option, see \"ls -h\"\n");
-                exit(EXIT_FAILURE);
+                _invoke_error(ERR_INVALIDOPT);
                 break;
         }
     }
 
     if (optind == argc)
     {
-        fprintf(stderr, "[ls]: Error: there is no file! See \"ls -h\"\n");
-        exit(EXIT_FAILURE);
+        _invoke_error(ERR_FILE_ISNT_SPEC);
     }
     // -------
     _list_routine(argv[optind]);
@@ -91,11 +127,12 @@ void _list_routine(const char *dir)
     _dir = opendir(dir); 
     if (_dir == NULL)
     {
-        fprintf(stderr, "[ls]: Error while opening dir %s! %s\n", dir, strerror(errno));
-        exit(EXIT_FAILURE);
+        _invoke_error(ERR_OPENDIR);
     }
 
     atexit(_close_dir_at_exit);
+
+    _prefix = dir;
 
     // scanning directories
     errno = 0; // for detecting error in readdir()
@@ -106,9 +143,7 @@ void _list_routine(const char *dir)
 
     if (errno != 0)
     {
-        fprintf(stderr, "[ls]: Error while parsing files! %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
+        _invoke_error(ERR_READDIR);
     }
 
     // after printing files without LS_LONG flag there is no '\n' at the end of
@@ -121,15 +156,21 @@ void _list_routine(const char *dir)
 
 void _print_file(struct dirent *file)
 {
-    enum COLORS filename_color = COL_FILE;
-
-    struct stat file_info;
-    lstat(file->d_name, &file_info);
-
     if (file->d_name[0] == '.' && !(flags & LS_ALL))
     {
         return;
     }
+
+    _prepare_path(file->d_name);
+
+    enum COLORS filename_color = COL_FILE;
+    struct stat file_info;
+    if (lstat(_path, &file_info) == -1) 
+    {
+        // printf("%s\n", _path);
+        _invoke_error(ERR_STAT);
+    }
+
 
     if (flags & LS_LONG) // long output
     {
@@ -171,10 +212,20 @@ void _print_file(struct dirent *file)
         }
         putchar(' ');
 
+        errno = 0;
         struct passwd *pwd_file = getpwuid(file_info.st_uid);
+        if (pwd_file == NULL && errno)
+        {
+            _invoke_error(ERR_PWD);
+        }
 
         // valgrind reports about a memory leak here 
+        errno = 0;
         struct group *grp_file = getgrgid(file_info.st_gid);
+        if (grp_file == NULL && errno)
+        {
+            _invoke_error(ERR_PWD);
+        }
 
         // hard links, groups, size
         printf("%lu %s %s %lu ", file_info.st_nlink, pwd_file->pw_name,
@@ -188,7 +239,17 @@ void _print_file(struct dirent *file)
         printf("%s ", output_time_str);
 
         // name 
-        printf("\x1b[;%dm%s\x1b[0m\n", _COL_CODES[filename_color], file->d_name);
+        // filename: "several words" -> `several words`
+        if (strchr(file->d_name, ' ') != NULL)
+        {
+            printf("\x1b[;%dm`%s`\x1b[0m\n", _COL_CODES[filename_color],
+                   file->d_name);
+        }
+        else
+        {
+            printf("\x1b[;%dm%s\x1b[0m\n", _COL_CODES[filename_color],
+                   file->d_name);
+        }
     }
     else // short output
     {
@@ -204,8 +265,80 @@ void _print_file(struct dirent *file)
         {
             filename_color = COL_LN;
         }
-        printf("\x1b[;%dm%s\x1b[0m  ", _COL_CODES[filename_color], file->d_name);
+
+        // filename: "several words" -> `several words`
+        if (strchr(file->d_name, ' ') != NULL)
+        {
+            printf("\x1b[;%dm`%s`\x1b[0m  ", _COL_CODES[filename_color],
+                   file->d_name);
+        }
+        else
+        {
+            printf("\x1b[;%dm%s\x1b[0m  ", _COL_CODES[filename_color],
+                   file->d_name);
+        }
     }
 }
 
 void _close_dir_at_exit() { closedir(_dir); }
+
+void _invoke_error(enum ERRCODES err)
+{
+    switch (err)
+    {
+    case ERR_NEARGS:
+        fprintf(stderr, "[ls]: Not enough args! Usage: ls -h\n");
+        break;
+    
+    case ERR_INVALIDOPT:
+        fprintf(stderr, "[ls]: Error: invalid option, see \"ls -h\"\n");
+        break;
+
+    case ERR_FILE_ISNT_SPEC:
+        fprintf(stderr, "[ls]: Error! File isn't specified\n");
+        break;
+
+    case ERR_OPENDIR:
+        fprintf(stderr, "[ls]: Error while opening directory! %s\n",
+                strerror(errno));
+        break;
+
+    case ERR_READDIR:
+        fprintf(stderr, "[ls]: Error while parsing files! %s\n",
+                strerror(errno));
+        break;
+
+    case ERR_STAT:
+        fprintf(stderr, "[ls]: error while getting stat! %s\n",
+                strerror(errno));
+        break;
+
+    case ERR_PWD:
+        fprintf(stderr, "[ls]: error while getting username! %s\n",
+                strerror(errno));
+        break;
+
+    case ERR_GRP:
+        fprintf(stderr, "[ls]: error while getting groupname! %s\n",
+                strerror(errno));
+        break;
+    }
+
+    exit(EXIT_FAILURE);
+}
+
+void _my_ls_init()
+{
+    _path = (char *)malloc(_PATH_SIZE);
+    atexit(_free_path_at_exit);
+}
+
+void _free_path_at_exit() { free(_path); }
+
+void _prepare_path(const char * file)
+{
+    _path[0] = '\0';
+    strcat(_path, _prefix);
+    strcat(_path, "/");
+    strcat(_path, file);
+}
