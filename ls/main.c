@@ -81,10 +81,6 @@ int _dirent_cmp(const void* a, const void* b);
 
 int main(int argc, char **argv)
 {
-    if (argc < 2)
-    {
-        _invoke_error(ERR_NEARGS);
-    }
     _my_ls_init();
 
     // --- option parser ---
@@ -117,10 +113,13 @@ int main(int argc, char **argv)
 
     if (optind == argc)
     {
-        _invoke_error(ERR_FILE_ISNT_SPEC);
+        _list_routine(".");
+    }
+    else
+    {
+        _list_routine(argv[optind]);
     }
     // -------
-    _list_routine(argv[optind]);
     exit(EXIT_SUCCESS);
 }
 
@@ -356,7 +355,6 @@ void _prepare_files_list()
         _invoke_error(ERR_READDIR);
     }
 
-    printf("%zu\n", _files_list_size);
     _files_list =
         (struct dirent **)malloc(_files_list_size * sizeof(struct dirent *));
     atexit(_free_files_list_at_exit);
