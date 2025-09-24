@@ -10,6 +10,9 @@
 #include <grp.h>
 #include <time.h>
 
+// TODO: link destination
+// TODO: NULL in d_name check
+
 enum LS_ARGS
 {
     LS_ALL = 1,
@@ -64,6 +67,7 @@ char * _path = NULL;
 
 DIR *_dir = NULL;
 size_t _files_list_size = 0;
+size_t _hidden_files_list_size = 0;
 struct dirent ** _files_list = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
@@ -140,11 +144,17 @@ void _list_routine(const char *dir)
     errno = 0; // for detecting error in readdir()
 
     _prepare_files_list();
+    if (flags & LS_LONG)
+    {
+        printf("total: %zu\n",
+            (flags & LS_ALL) ? _files_list_size
+                             : _files_list_size - _hidden_files_list_size);
+    }
+
     for (size_t i = 0; i < _files_list_size; ++i)
     {
         _print_file(_files_list[i]);
     }
-
 
     // after printing files without LS_LONG flag there is no '\n' at the end of
     // the stdout
@@ -348,7 +358,12 @@ void _prepare_files_list()
     errno = 0;
     for (struct dirent *cur_file; (cur_file = readdir(_dir)) != NULL;
          _files_list_size++)
-        ;
+    {
+        if (cur_file->d_name[0] == '.')
+        {
+            _hidden_files_list_size++;
+        }
+    }
 
     if (errno)
     {
