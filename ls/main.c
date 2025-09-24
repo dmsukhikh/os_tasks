@@ -11,7 +11,6 @@
 #include <time.h>
 
 // TODO: link destination
-// TODO: NULL in d_name check
 
 enum LS_ARGS
 {
@@ -238,11 +237,30 @@ void _print_file(struct dirent *file)
         }
 
         // hard links, groups, size
-        printf("%lu %s %s %lu ", file_info.st_nlink, pwd_file->pw_name,
-               grp_file->gr_name, file_info.st_size);
+        printf("%lu ", file_info.st_nlink);
 
-        // time 
-        char *time_str = ctime(&file_info.st_mtim.tv_sec); 
+        if (pwd_file)
+        {
+            printf("%s ", pwd_file->pw_name);
+        }
+        else
+        {
+            printf("%d ", file_info.st_uid);
+
+        }
+
+        if (grp_file)
+        {
+            printf("%s ", grp_file->gr_name);
+        }
+        else
+        {
+            printf("%d ", file_info.st_gid);
+        }
+        printf("%lu ", file_info.st_size);
+
+        // time
+        char* time_str = ctime(&file_info.st_mtim.tv_sec);
         char output_time_str[13];
         strncpy(output_time_str, time_str + 4, 12); 
         output_time_str[12] = '\0';
