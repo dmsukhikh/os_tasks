@@ -1,3 +1,4 @@
+#include <linux/limits.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -9,8 +10,6 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
-
-// TODO: link destination
 
 enum LS_ARGS
 {
@@ -213,6 +212,7 @@ void _print_file(struct dirent *file)
             putchar('?');
         }
 
+
         // file permissions
         int i = 0;
         for (uint64_t mask = S_IRUSR; mask > 0; mask >>= 1, i++)
@@ -270,14 +270,35 @@ void _print_file(struct dirent *file)
         // filename: "several words" -> `several words`
         if (strchr(file->d_name, ' ') != NULL)
         {
-            printf("\x1b[;%dm`%s`\x1b[0m\n", _COL_CODES[filename_color],
+            printf("\x1b[;%dm`%s`\x1b[0m", _COL_CODES[filename_color],
                    file->d_name);
         }
         else
         {
-            printf("\x1b[;%dm%s\x1b[0m\n", _COL_CODES[filename_color],
+            printf("\x1b[;%dm%s\x1b[0m", _COL_CODES[filename_color],
                    file->d_name);
         }
+
+        if (S_ISLNK(file_info.st_mode))
+        {
+            size_t bufsize
+                = file_info.st_size + 1 ? file_info.st_size + 1 : PATH_MAX;
+            char* buf = malloc(bufsize);
+            if (!buf)
+            {
+                _invoke_error(ERR_STAT);
+            }
+            int a = readlink(_path, buf, bufsize);
+            if (a == -1)
+            {
+                _invoke_error(ERR_STAT);
+            }
+
+            printf(" -> %.*s", a, buf);
+
+            free(buf);
+        }
+        putchar('\n');
     }
     else // short output
     {
