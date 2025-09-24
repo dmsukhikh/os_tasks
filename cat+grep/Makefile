@@ -2,10 +2,10 @@
 
 FLAGS = -Wall -Wextra -O2
 
-all: mycat 
+all: mycat
 
 mycat: mycat.o
-	gcc mycat.o -o mycat 
+	gcc mycat.o -o mycat
 
 mycat.o: mycat.c
 	gcc mycat.c -c ${FLAGS}
