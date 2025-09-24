@@ -50,7 +50,7 @@ int main(int argc, char **argv)
         {
             case 'h':
                 printf("mycat - print file contents\n"
-                       "usage: my [params...] [file]\n"
+                       "usage: mycat [params...] [file]\n"
                        " -n - count every line in file \".\"\n"
                        " -b - count every non-empty line in file\n"
                        " -E - print delimeter in the end of lines\n---\n"
@@ -134,19 +134,19 @@ void invoke_error(enum err_code err)
     switch (err)
     {
     case ERR_NEARGS:
-        fprintf(stderr, "[ls]: Not enough args! Usage: mycat -h\n");
+        fprintf(stderr, "[cat]: Not enough args! Usage: mycat -h\n");
         break;
     
     case ERR_INVALIDOPT:
-        fprintf(stderr, "[ls]: Error: invalid option, see \"mycat -h\"\n");
+        fprintf(stderr, "[cat]: Error: invalid option, see \"mycat -h\"\n");
         break;
 
     case ERR_FILE_NOT_FOUND:
-        fprintf(stderr, "[ls]: Error: file not found, see \"mycat -h\"\n");
+        fprintf(stderr, "[cat]: Error: file not found, see \"mycat -h\"\n");
         break;
 
     case ERR_MEMERROR:
-        fprintf(stderr, "[ls]: Error: allocation failed!\n");
+        fprintf(stderr, "[cat]: Error: allocation failed!\n");
         break;
     }
 
