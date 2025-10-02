@@ -66,6 +66,7 @@ char * _path = NULL;
 DIR *_dir = NULL;
 size_t _files_list_size = 0;
 size_t _hidden_files_list_size = 0;
+size_t _blocks = 0;
 struct dirent ** _files_list = NULL;
 int flags = 0;  // bitwise OR of the flags from LS_ARGS
 
@@ -144,9 +145,7 @@ void _list_routine(const char *dir)
     _prepare_files_list();
     if (flags & LS_LONG)
     {
-        printf("total: %zu\n",
-            (flags & LS_ALL) ? _files_list_size
-                             : _files_list_size - _hidden_files_list_size);
+        printf("total: %zu\n", _blocks / 2);
     }
 
     for (size_t i = 0; i < _files_list_size; ++i)
@@ -402,6 +401,15 @@ void _prepare_files_list()
         {
             _hidden_files_list_size++;
         }
+
+        struct stat temp;
+        _prepare_path(cur_file->d_name);
+        if (lstat(_path, &temp) == -1)
+        {
+            _invoke_error(ERR_OPENDIR);
+        }
+
+        _blocks += temp.st_blocks;
     }
 
     if (errno)
