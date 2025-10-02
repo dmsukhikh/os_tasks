@@ -409,7 +409,8 @@ void _prepare_files_list()
             _invoke_error(ERR_OPENDIR);
         }
 
-        _blocks += temp.st_blocks;
+        if ((flags & LS_ALL) || cur_file->d_name[0] != '.')
+            _blocks += temp.st_blocks;
     }
 
     if (errno)
