@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+
 enum cat_flag
 {
     FLAG_NUM = 1,
@@ -155,7 +156,8 @@ void invoke_error(enum err_code err)
 
 void count_lines()
 {
-    size_t bytes = 0, sz = 0; 
+    ssize_t bytes = 0;
+    size_t sz = 0; 
     char *line;
     size_t l = 0, nel = 0;
     while ((bytes = getline(&line, &sz, file)) != -1)
