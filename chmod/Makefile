@@ -1,14 +1,14 @@
 .PHONY: all clean
 
-FLAGS = -Wall -Wextra -O2
+FLAGS = -Wall -Wextra -g
 
-all: main
+all: mychmod
 
-main: main.o
-	gcc main.o -o main
+mychmod: mychmod.o
+	gcc mychmod.o -o mychmod
 
-main.o: main.c
-	gcc main.c -c ${FLAGS}
+mychmod.o: mychmod.c
+	gcc mychmod.c -c ${FLAGS}
 
 clean:
-	rm *.o main
+	rm *.o mychmod
