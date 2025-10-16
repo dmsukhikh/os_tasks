@@ -21,9 +21,9 @@ enum STATES
 enum PERMGROUPS
 {
     PG_ALL = 1,
-    PG_OWNER = 2,
+    PG_USER = 2,
     PG_GROUP = 4,
-    PG_USERS = 8
+    PG_OTHERS = 8
 };
 
 enum MODIFICATOR
@@ -187,7 +187,7 @@ mode_t parse_mode_str(char * mode_str)
                 switch (cur_char)
                 {
                     case 'u':
-                        parsed_mode.perm_groups |= PG_USERS;
+                        parsed_mode.perm_groups |= PG_USER;
                         break;
                     case 'g':
                         parsed_mode.perm_groups |= PG_GROUP;
@@ -196,7 +196,7 @@ mode_t parse_mode_str(char * mode_str)
                         parsed_mode.perm_groups |= PG_ALL;
                         break;
                     case 'o':
-                        parsed_mode.perm_groups |= PG_OWNER;
+                        parsed_mode.perm_groups |= PG_OTHERS;
                         break;
                 }
                 state = STATE_ENTRY;
@@ -247,13 +247,13 @@ mode_t parse_mode_str(char * mode_str)
                 switch (cur_char)
                 {
                 case 'u':
-                    parsed_mode.end_perms->flags |= PG_USERS;
+                    parsed_mode.end_perms->flags |= PG_USER;
                     break;
                 case 'g':
                     parsed_mode.end_perms->flags |= PG_GROUP;
                     break;
                 case 'o':
-                    parsed_mode.end_perms->flags |= PG_OWNER;
+                    parsed_mode.end_perms->flags |= PG_OTHERS;
                     break;
                 }
 
@@ -338,11 +338,11 @@ void apply_modes()
     mode_t bmask = 0;
     if (parsed_mode.perm_groups == 0) parsed_mode.perm_groups |= PG_ALL;
 
-    if (parsed_mode.perm_groups & PG_USERS)
+    if (parsed_mode.perm_groups & PG_OTHERS)
         bmask |= (S_IROTH | S_IWOTH | S_IXOTH);
     if (parsed_mode.perm_groups & PG_GROUP)
         bmask |= (S_IRGRP | S_IWGRP | S_IXGRP);
-    if (parsed_mode.perm_groups & PG_OWNER)
+    if (parsed_mode.perm_groups & PG_USER)
         bmask |= (S_IRUSR | S_IWUSR | S_IXUSR);
 
     if (parsed_mode.perm_groups & PG_ALL)
@@ -358,9 +358,9 @@ void apply_modes()
         mode_t pmask = 0;
         if (i->contains_copied_pg)
         {
-            if (i->flags & PG_USERS) pmask |= (S_IROTH | S_IWOTH | S_IXOTH);
+            if (i->flags & PG_OTHERS) pmask |= (S_IROTH | S_IWOTH | S_IXOTH);
             if (i->flags & PG_GROUP) pmask |= (S_IRGRP | S_IWGRP | S_IXGRP);
-            if (i->flags & PG_OWNER) pmask |= (S_IRUSR | S_IWUSR | S_IXUSR);
+            if (i->flags & PG_USER) pmask |= (S_IRUSR | S_IWUSR | S_IXUSR);
         }
         else
         {
