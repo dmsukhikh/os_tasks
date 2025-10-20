@@ -19,6 +19,16 @@ enum prog_mode
 };
 
 /**
+ * Тип ошибки
+ *
+ * Передается в print_err для вывода сообщения ошибки
+ */
+enum err_code
+{
+    ERR_ARGS //!< Ошибка при парсинге аргументов
+};
+
+/**
  * Определить режим работы по аргументам программы
  */
 enum prog_mode parse_args(int argc, char **argv);
@@ -28,6 +38,15 @@ enum prog_mode parse_args(int argc, char **argv);
  */
 void print_help();
 
+/**
+ * Вывести сообщение об ошибке и завершить программу
+ *
+ * После вывода сообщения о ошибке в stderr завершает программу с кодом EXIT_FAILURE
+ *
+ * \param code Тип ошибки
+ */
+void print_err(enum err_code code);
+
 int main(int argc, char **argv)
 {
     switch(parse_args(argc, argv))
@@ -35,6 +54,11 @@ int main(int argc, char **argv)
         case MODE_HELP:
             print_help();
             break;
+
+        case MODE_UNDEF:
+            print_err(ERR_ARGS);
+            break;
+
         default:
             break;
     }
@@ -87,4 +111,17 @@ void print_help()
            " [АРХИВ] -s(--stat)               - Вывести информацию о архиве\n"
            "---\n"
            "prod. by dmsukhikh\n");
+}
+
+void print_err(enum err_code code)
+{
+    char *errmsg = 0;
+    switch (code)
+    {
+        case ERR_ARGS:
+            errmsg = "Ошибка при разборе аргументов";
+            break;
+    }
+    fprintf(stderr, "[archiver]: %s. См. \"archiver --help\" для справки\n", errmsg);
+    exit(EXIT_FAILURE);
 }
