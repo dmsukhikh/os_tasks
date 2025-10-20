@@ -1,7 +1,68 @@
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define FILENAME_LENGTH 255
+#define HEADER_ENDING_SIZE 4
+#define BUFFER_SIZE 1024
+
+/**
+ * \file archiver.c - простой архиватор
+ *
+ * Архив имеет следующую структуру: вначале последовательно идут структуры
+ * file_info, после этого - содержимое файлов, идущее подряд. Конец заголовка -
+ * 4 нулевых байтов (0000 0000). Для эффективной работы с заголовком архива
+ * (структуры file_info вначале) существует связный список fi_list
+ *
+ * При добавлении (insert) информация о файле добавляется в конец заголовка, а
+ * данные добавляются в таком же порядке в конец файла
+ */
+
+/**
+ * Информация о файле в архиве
+ *
+ * \note Для переносимости файла архива используются следующие техники:
+ * * Определяется выравнивание `#pragma pack(1)`
+ * * Для записи чтения/записи чисел используется ntohl/htonl, для создания
+ * архивов, переносимых на системы с другим порядком байт (endianness)
+ */
+struct file_info;
+
+; // Штука, чтобы предотварить ошибочное предупреждение clangd
+#pragma pack(push, 1)
+struct file_info
+{
+    uint8_t  filename[FILENAME_LENGTH]; //!< Имя файла
+    uint64_t filesize; //!< Размер файла (в файле)
+    uint64_t mask; //!< Маска прав доступа к файлу
+    uint64_t _offset; //!< Положение файла в архиве
+};
+#pragma pack(pop)
+
+/**
+ * Декодированный заголовок архива
+ *
+ * fi_list == NULL - конец связного списка
+ */
+struct fi_list
+{
+    struct file_info data;
+    struct fi_list *next;
+};
+
+/**
+ * Глобальная переменная для доступа к заголовку архива
+ *
+ * \see read_header
+ */
+struct fi_list *global_fi_list = NULL;
 
 /**
  * Состояния программы
@@ -25,7 +86,10 @@ enum prog_mode
  */
 enum err_code
 {
-    ERR_ARGS //!< Ошибка при парсинге аргументов
+    ERR_ARGS, //!< Ошибка при парсинге аргументов
+    ERR_INPUT_NOFILES, //!< Не переданы файлы для вставки в архив
+    ERR_OPEN, //!< Ошибка при открытии файла
+    ERR_INPUT_NOAPP
 };
 
 /**
@@ -47,12 +111,52 @@ void print_help();
  */
 void print_err(enum err_code code);
 
+/**
+ * Поместить в архив файлы
+ * \param archive Название ошибки
+ * \param fnums Количество файлов
+ * \param fnames Массив названий файлов
+ */
+void input_files(char* archive, int fnums, char** fnames);
+
+/**
+ * Читает заголовок (см. документацию к файлу archiver.c), заполняя
+ * global_fi_list. После устанавливает указатель в файле на начало (rewind)
+ */
+void read_header(int arch_fd);
+
+/**
+ * Очищает global_fi_list
+ */
+void free_fi_list();
+
+/**
+ * Возвращает конец связного списка global_fi_list
+ *
+ * \return Указатель на конец global_fi_list или NULL, если не инициализировано
+ */
+struct fi_list *end_global_fi_list();
+
+/**
+ * Создает пустую ноду в конце global_fi_list
+ *
+ * \return Новую ноду в конце global_fi_list
+ */
+struct fi_list *make_new_node_in_global_fi_list();
+
+// Алгоритм поворота
+// 4 3 2 1 -> 3 4 1 2 -> 1 2 3 4
+
 int main(int argc, char **argv)
 {
     switch(parse_args(argc, argv))
     {
         case MODE_HELP:
             print_help();
+            break;
+
+        case MODE_INPUT:
+            input_files(argv[1], argc-3, argv+3);
             break;
 
         case MODE_UNDEF:
@@ -72,27 +176,32 @@ enum prog_mode parse_args(int argc, char **argv)
         return MODE_UNDEF;
     }
 
-    if (strcmp(argv[1], "-h") || strcmp(argv[1], "--help"))
+    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)
     {
         return MODE_HELP;
     }
 
-    if (strcmp(argv[2], "-i") || strcmp(argv[2], "--input"))
+    if (argc < 3) // with only one arg
+    {
+        return MODE_UNDEF;
+    }
+
+    if (strcmp(argv[2], "-i") == 0 || strcmp(argv[2], "--input") == 0)
     {
         return MODE_INPUT;
     }
 
-    if (strcmp(argv[2], "-e") || strcmp(argv[2], "--extract"))
+    if (strcmp(argv[2], "-e") == 0 || strcmp(argv[2], "--extract") == 0)
     {
         return MODE_EXTRACT;
     }
 
-    if (strcmp(argv[2], "-r") || strcmp(argv[2], "--remove"))
+    if (strcmp(argv[2], "-r") == 0 || strcmp(argv[2], "--remove") == 0)
     {
         return MODE_EXTRACT;
     }
 
-    if (strcmp(argv[2], "-s") || strcmp(argv[2], "--stat"))
+    if (strcmp(argv[2], "-s") == 0 || strcmp(argv[2], "--stat") == 0)
     {
         return MODE_EXTRACT;
     }
@@ -121,7 +230,221 @@ void print_err(enum err_code code)
         case ERR_ARGS:
             errmsg = "Ошибка при разборе аргументов";
             break;
+
+        case ERR_INPUT_NOFILES:
+            errmsg = "Не указаны файлы для вставки в архив";
+            break;
+
+        case ERR_OPEN:
+            errmsg = "Ошибка при открытии файла";
+            break;
+
+        case ERR_INPUT_NOAPP:
+            errmsg = "Не добавлен ни один указанный файл";
+            break;
     }
-    fprintf(stderr, "[archiver]: %s. См. \"archiver --help\" для справки\n", errmsg);
+
+    if (errno == 0)
+    {
+        fprintf(stderr, "[archiver]: %s. См. \"archiver --help\" для справки\n", errmsg);
+    }
+    else
+    {
+        fprintf(stderr,
+            "[archiver]: %s, %s. \nСм. \"archiver --help\" для справки\n", errmsg,
+            strerror(errno));
+    }
     exit(EXIT_FAILURE);
+}
+
+
+void input_files(char* archive, int fnums, char** fnames)
+{
+    const char *new_fd_name = ".supertemp.egleser";
+
+    int new_fd = open(new_fd_name, O_CREAT | O_RDWR);
+    int fd = open(archive, O_CREAT | O_RDONLY); 
+    if (fd == -1 || new_fd == -1)
+    {
+        print_err(ERR_OPEN);
+    }
+
+    read_header(fd);
+
+    if (fnums == 0)
+    {
+        close(fd);
+        close(new_fd);
+        print_err(ERR_INPUT_NOFILES);
+    }
+
+    struct stat stat_file;
+    struct fi_list* app_files_start
+        = 0; // Позиция в связном списке, откуда начинается набор новых фильмов
+    int inserted_files = 0;
+
+    for (int i = 0; i < fnums; ++i)
+    {
+        if (stat(fnames[i], &stat_file) == -1)
+        {
+            fprintf(stderr,
+                "[archiver]: Ошибка при вставке файла \"%s\": %s. Пропущено\n",
+                fnames[i], strerror(errno));
+            continue;
+        }
+
+        if (!S_ISREG(stat_file.st_mode))
+        {
+            fprintf(stderr,
+                "[archiver]: Ошибка при вставке файла \"%s\": Файл не "
+                "регулярный. Пропущено\n",
+                fnames[i]);
+            continue;
+        }
+
+        struct file_info fi;
+        memcpy(fi.filename, fnames[i], strlen(fnames[i]));
+        fi.filesize = stat_file.st_blocks * 512;
+        fi.mask = stat_file.st_mode & 0777;
+        fi._offset = 0; // Будет добавлено позднее в коде
+       
+        struct fi_list *n = make_new_node_in_global_fi_list();
+        memcpy(&n->data, &fi, sizeof(struct file_info));
+        if (!app_files_start) app_files_start = n;
+        inserted_files++;
+    }
+
+    if (inserted_files == 0)
+    {
+        close(fd);
+        close(new_fd);
+        free_fi_list();
+        print_err(ERR_INPUT_NOAPP);
+    }
+
+    // Обновление оффсетов в global_fi_list
+    {
+        uint64_t res_offset;
+        for (struct fi_list *i = global_fi_list; i != app_files_start; i = i->next)
+        {
+            res_offset += i->data.filesize;
+            i->data._offset += sizeof(struct file_info) * inserted_files;
+        }
+
+        for (struct fi_list *i = app_files_start; i != NULL; i = i->next)
+        {
+            i->data._offset = sizeof(struct file_info) * inserted_files + res_offset;
+            res_offset += i->data.filesize;
+        }
+    }
+
+    // Добавляем новую инфу в temp
+    {
+        for (struct fi_list *i = global_fi_list; i != NULL; i = i->next)
+        {
+            write(new_fd, &i->data, sizeof(struct file_info));
+        }
+
+        // Пишем заголовок
+        uint32_t t = 0;
+        write(new_fd, &t, HEADER_ENDING_SIZE);
+        
+        lseek(fd, 0, SEEK_SET);
+        char buf[BUFFER_SIZE];
+        while (read(fd, buf, BUFFER_SIZE) > 0)
+        {
+            write(new_fd, buf, BUFFER_SIZE);
+        }
+        lseek(fd, 0, SEEK_END);
+
+        for (int i = 0; i < fnums; ++i)
+        {
+            int app_fd = open(fnames[i], O_RDONLY);
+            if (fd == -1) continue;
+            while (read(app_fd, buf, BUFFER_SIZE) > 0)
+            {
+                write(new_fd, buf, BUFFER_SIZE);
+            }
+            close(app_fd);
+        }
+    }
+
+    remove(archive);
+    rename(new_fd_name, archive);
+
+    close(fd);
+    close(new_fd);
+    free_fi_list();
+}
+
+void read_header(int arch_fd)
+{
+    struct fi_list *cur = end_global_fi_list();
+    uint32_t header_ending = 0, buf;
+    for (;;)
+    {
+        // check for header ending
+        if (read(arch_fd, &buf, HEADER_ENDING_SIZE) == 0) 
+        {
+            if (!errno) break; // empty file 
+            else
+            {
+                close(arch_fd);
+                free_fi_list();
+                perror("err: ");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        // Здесь, нас не заботит byte order, поскольку значение 0x0 симметрично
+        // Если условие выполняется, заголовок кончился
+        if (header_ending == buf)
+            break;
+        // Возвращаемся назад...
+        lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR); 
+
+        // ... И читаем file_info
+        struct fi_list *info = make_new_node_in_global_fi_list();
+
+        read(arch_fd, &info->data, sizeof(struct file_info));
+    }
+    lseek(arch_fd, 0, SEEK_SET);
+}
+
+void free_fi_list()
+{
+    for (struct fi_list *i = global_fi_list; i != NULL; )
+    {
+        struct fi_list *d = i->next;
+        free(i);
+        i = d;
+    }
+}
+
+struct fi_list* end_global_fi_list()
+{
+    struct fi_list* i = global_fi_list;
+    if (!i)
+        return i;
+
+    for (; i->next != NULL; i = i->next);
+    return i;
+}
+
+struct fi_list* make_new_node_in_global_fi_list()
+{
+
+    struct fi_list* info = end_global_fi_list();
+    if (!info)
+    {
+        global_fi_list = malloc(sizeof(struct fi_list));
+        info = global_fi_list;
+    }
+    else
+    {
+        info->next = malloc(sizeof(struct fi_list));
+        info = info->next;
+    }
+    info->next = NULL;
+    return info;
 }
