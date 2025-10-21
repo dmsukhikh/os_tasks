@@ -34,6 +34,7 @@
  * архивов, переносимых на системы с другим порядком байт (endianness)
  */
 struct file_info;
+typedef struct file_info file_info_t;
 
 ; // Штука, чтобы предотварить ошибочное предупреждение clangd
 #pragma pack(push, 1)
@@ -46,6 +47,7 @@ struct file_info
 };
 #pragma pack(pop)
 
+
 /**
  * Декодированный заголовок архива
  *
@@ -53,16 +55,17 @@ struct file_info
  */
 struct fi_list
 {
-    struct file_info data;
+    file_info_t data;
     struct fi_list *next;
 };
+typedef struct fi_list fi_list_t;
 
 /**
  * Глобальная переменная для доступа к заголовку архива
  *
  * \see read_header
  */
-struct fi_list *global_fi_list = NULL;
+fi_list_t *global_fi_list = NULL;
 
 /**
  * Состояния программы
@@ -135,14 +138,14 @@ void free_fi_list();
  *
  * \return Указатель на конец global_fi_list или NULL, если не инициализировано
  */
-struct fi_list *end_global_fi_list();
+fi_list_t *end_global_fi_list();
 
 /**
  * Создает пустую ноду в конце global_fi_list
  *
  * \return Новую ноду в конце global_fi_list
  */
-struct fi_list *make_new_node_in_global_fi_list();
+fi_list_t *make_new_node_in_global_fi_list();
 
 // Алгоритм поворота
 // 4 3 2 1 -> 3 4 1 2 -> 1 2 3 4
@@ -262,8 +265,8 @@ void input_files(char* archive, int fnums, char** fnames)
 {
     const char *new_fd_name = ".supertemp.egleser";
 
-    int new_fd = open(new_fd_name, O_CREAT | O_RDWR);
-    int fd = open(archive, O_CREAT | O_RDONLY); 
+    int new_fd = open(new_fd_name, O_CREAT | O_RDWR, 0644);
+    int fd = open(archive, O_CREAT | O_RDONLY, 0644); 
     if (fd == -1 || new_fd == -1)
     {
         print_err(ERR_OPEN);
@@ -275,11 +278,12 @@ void input_files(char* archive, int fnums, char** fnames)
     {
         close(fd);
         close(new_fd);
+        free_fi_list();
         print_err(ERR_INPUT_NOFILES);
     }
 
     struct stat stat_file;
-    struct fi_list* app_files_start
+    fi_list_t* app_files_start
         = 0; // Позиция в связном списке, откуда начинается набор новых фильмов
     int inserted_files = 0;
 
@@ -302,14 +306,23 @@ void input_files(char* archive, int fnums, char** fnames)
             continue;
         }
 
-        struct file_info fi;
+        file_info_t fi;
         memcpy(fi.filename, fnames[i], strlen(fnames[i]));
-        fi.filesize = stat_file.st_blocks * 512;
+        
+        // Добавляем размер файла
+        {
+            // Мы открывали файл раньше, так что проверок не делаем
+            int _offset_fd = open(fnames[i], O_RDONLY);
+            fi.filesize = lseek(_offset_fd, 0, SEEK_END);
+            close(_offset_fd);
+            printf("dbg: %s %lu\n", fnames[i], fi.filesize);
+        }
+
         fi.mask = stat_file.st_mode & 0777;
         fi._offset = 0; // Будет добавлено позднее в коде
        
-        struct fi_list *n = make_new_node_in_global_fi_list();
-        memcpy(&n->data, &fi, sizeof(struct file_info));
+        fi_list_t *n = make_new_node_in_global_fi_list();
+        memcpy(&n->data, &fi, sizeof(file_info_t));
         if (!app_files_start) app_files_start = n;
         inserted_files++;
     }
@@ -325,24 +338,24 @@ void input_files(char* archive, int fnums, char** fnames)
     // Обновление оффсетов в global_fi_list
     {
         uint64_t res_offset;
-        for (struct fi_list *i = global_fi_list; i != app_files_start; i = i->next)
+        for (fi_list_t *i = global_fi_list; i != app_files_start; i = i->next)
         {
             res_offset += i->data.filesize;
-            i->data._offset += sizeof(struct file_info) * inserted_files;
+            i->data._offset += sizeof(file_info_t) * inserted_files;
         }
 
-        for (struct fi_list *i = app_files_start; i != NULL; i = i->next)
+        for (fi_list_t *i = app_files_start; i != NULL; i = i->next)
         {
-            i->data._offset = sizeof(struct file_info) * inserted_files + res_offset;
+            i->data._offset = sizeof(file_info_t) * inserted_files + res_offset;
             res_offset += i->data.filesize;
         }
     }
 
     // Добавляем новую инфу в temp
     {
-        for (struct fi_list *i = global_fi_list; i != NULL; i = i->next)
+        for (fi_list_t *i = global_fi_list; i != NULL; i = i->next)
         {
-            write(new_fd, &i->data, sizeof(struct file_info));
+            write(new_fd, &i->data, sizeof(file_info_t));
         }
 
         // Пишем заголовок
@@ -351,6 +364,7 @@ void input_files(char* archive, int fnums, char** fnames)
         
         lseek(fd, 0, SEEK_SET);
         char buf[BUFFER_SIZE];
+
         while (read(fd, buf, BUFFER_SIZE) > 0)
         {
             write(new_fd, buf, BUFFER_SIZE);
@@ -370,7 +384,9 @@ void input_files(char* archive, int fnums, char** fnames)
     }
 
     remove(archive);
-    rename(new_fd_name, archive);
+    rename(new_fd_name,
+        archive); // странно, но это работает
+                  // Если мы назовем файл "temp/nice.txt", то все сработает
 
     close(fd);
     close(new_fd);
@@ -379,7 +395,6 @@ void input_files(char* archive, int fnums, char** fnames)
 
 void read_header(int arch_fd)
 {
-    struct fi_list *cur = end_global_fi_list();
     uint32_t header_ending = 0, buf;
     for (;;)
     {
@@ -404,26 +419,26 @@ void read_header(int arch_fd)
         lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR); 
 
         // ... И читаем file_info
-        struct fi_list *info = make_new_node_in_global_fi_list();
+        fi_list_t *info = make_new_node_in_global_fi_list();
 
-        read(arch_fd, &info->data, sizeof(struct file_info));
+        read(arch_fd, &info->data, sizeof(file_info_t));
     }
     lseek(arch_fd, 0, SEEK_SET);
 }
 
 void free_fi_list()
 {
-    for (struct fi_list *i = global_fi_list; i != NULL; )
+    for (fi_list_t *i = global_fi_list; i != NULL; )
     {
-        struct fi_list *d = i->next;
+        fi_list_t *d = i->next;
         free(i);
         i = d;
     }
 }
 
-struct fi_list* end_global_fi_list()
+fi_list_t* end_global_fi_list()
 {
-    struct fi_list* i = global_fi_list;
+    fi_list_t* i = global_fi_list;
     if (!i)
         return i;
 
@@ -431,18 +446,18 @@ struct fi_list* end_global_fi_list()
     return i;
 }
 
-struct fi_list* make_new_node_in_global_fi_list()
+fi_list_t* make_new_node_in_global_fi_list()
 {
 
-    struct fi_list* info = end_global_fi_list();
+    fi_list_t* info = end_global_fi_list();
     if (!info)
     {
-        global_fi_list = malloc(sizeof(struct fi_list));
+        global_fi_list = malloc(sizeof(fi_list_t));
         info = global_fi_list;
     }
     else
     {
-        info->next = malloc(sizeof(struct fi_list));
+        info->next = malloc(sizeof(fi_list_t));
         info = info->next;
     }
     info->next = NULL;
