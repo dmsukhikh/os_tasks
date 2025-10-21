@@ -22,9 +22,19 @@
  *
  * При добавлении (insert) информация о файле добавляется в конец заголовка, а
  * данные добавляются в таком же порядке в конец файла
+ *
+ * __Ограничения__:
+ * * Файл должен быть регулярным
+ * * Файл должен идти на вход программы не по пути - только имя с расширением
+ * Возможно, это будет сделано в будущем
+ * * Имена файлов не должны повторяться (ничего не сломается, просто не надо)
+ *
+ *
  * \todo Сделать проверку на уникальность файла, который мы вставляем
  * \todo Сделать вставку контроллирующей последовательности в начало архива,
  * чтобы программа могла отличать файлы-архивы от файлов-неархивов
+ * \todo Добавить независимость от endianness процессора (для структуры
+ * file_info)
  */
 
 /**
@@ -148,7 +158,7 @@ fi_list_t *make_new_node_in_fi_list(fi_list_t *head);
 /**
  * Создает связный список
  */
-fi_list_t *init_list();
+fi_list_t *init_fi_list();
 
 /**
  * Обновляет заголовок, вставляя информацию о файлах fnames в конец заголовка
@@ -194,6 +204,41 @@ void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE]);
  */
 void stat_archive(char *archive);
 
+/**
+ * Получить файлы из архива
+ * \param archive Название архива
+ * \param fnums Количество файлов, которые надо извлечь. Если передан 0, то будет извлечен весь архив
+ * \param fnames Массив файлов, которые необходимо извлачь
+ */
+void extract_files(char *archive, int fnums, char **fnames);
+
+/**
+ * Удаляет ноду, следующую за _to_ из связного списка _h_
+ * \warning Перед использованием функции добавьте фиктивный узел в начало
+ * списка, и передавайте этот фиктивный узел в _h_
+ *
+ * \code
+ * fi_list_t *header = init_fi_list();
+ * //...
+ * fi_list_t fictive;
+ * fictive.next = header;
+ * for (fi_list_t *i = header; !i->eof; i = i->next)
+ * {
+ *     if (something_wrong_with(i))
+ *     {
+ *         remove_node_from_fi_list(&fictive, i);
+ *         header = fictive.next;
+ *     }
+ * }
+ *
+ * \endcode
+ * \param h - голова связного списка
+ * \param to - нода, предыдущая той, которую надо удалить или нода, следующая за
+ * головой, если is_head == 1
+ * \return 0, если _to_ был удален из h, -1 - иначе
+ */
+int remove_node_from_fi_list(fi_list_t* h, fi_list_t* to);
+
 int main(int argc, char **argv)
 {
     switch(parse_args(argc, argv))
@@ -208,6 +253,10 @@ int main(int argc, char **argv)
 
         case MODE_STAT:
             stat_archive(argv[1]);
+            break;
+
+        case MODE_EXTRACT:
+            extract_files(argv[1], argc-3, argv+3);
             break;
 
         case MODE_UNDEF:
@@ -320,7 +369,7 @@ void input_files(char* archive, int fnums, char** fnames)
         print_err(ERR_OPEN);
     }
 
-    fi_list_t *new_header = init_list();
+    fi_list_t *new_header = init_fi_list();
     read_header(new_header, fd);
 
     if (fnums == 0)
@@ -410,7 +459,7 @@ fi_list_t* make_new_node_in_fi_list(fi_list_t *h)
     fi_list_t *i = h;
     for (; !i->eof; i = i->next);
 
-    i->next = init_list();
+    i->next = init_fi_list();
     i->eof = 0;
     return i;
 }
@@ -475,7 +524,7 @@ void insert_files_routine(fi_list_t *header, int fd, int new_fd, int fnums, char
     write(new_fd, &t, HEADER_ENDING_SIZE);
 
     // Читаем старый архив
-    fi_list_t *oldh = init_list();
+    fi_list_t *oldh = init_fi_list();
     read_header(oldh, fd);
     uint64_t off = oldh->data._offset;
     free_fi_list(oldh);
@@ -521,7 +570,7 @@ void update_offsets_in_header_for_input(fi_list_t* header)
     }
 }
 
-fi_list_t *init_list()
+fi_list_t *init_fi_list()
 {
     fi_list_t *t = malloc(sizeof(fi_list_t));
     t->next = NULL;
@@ -537,7 +586,7 @@ void stat_archive(char *archive)
         print_err(ERR_OPEN);
     }
 
-    fi_list_t *h = init_list();
+    fi_list_t *h = init_fi_list();
     read_header(h, fd);
 
     // выравнивание
@@ -551,6 +600,7 @@ void stat_archive(char *archive)
             ? size_align
             : strlen((char*)i->data.filename);
     }
+
 
     printf("--- Архив: %s ---\n", archive);
     printf("%-*s %-*s\n", name_align+4, "Файл", size_align+6, "Размер");
@@ -582,5 +632,83 @@ void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE])
         snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fГБ", s/1024.f/1024.f/1024.f);
     }
 
+}
+
+void extract_files(char *archive, int fnums, char **fnames)
+{
+    int fd = open(archive, O_RDONLY);     
+    if (fd == -1)
+    {
+        print_err(ERR_OPEN);
+    }
+
+    fi_list_t *header = init_fi_list();
+    read_header(header, fd);
+    
+    if (fnums != 0)
+    {
+        fi_list_t fictive;
+        fictive.eof = 0;
+        fictive.next = header;
+        for (fi_list_t *i = &fictive; !i->next->eof; )
+        {
+            char is_there = 0;
+            for (int j = 0; j < fnums; ++j)
+                is_there |= strcmp((const char*)i->next->data.filename, fnames[j]) == 0;
+
+            if (!is_there)
+            {
+                remove_node_from_fi_list(&fictive, i);
+                header = fictive.next;
+                continue;
+            }
+            i = i->next;
+        }
+    }
+    
+    for (fi_list_t *i = header; !i->eof; i = i->next)
+    {
+        printf("%s\n", i->data.filename);
+        int new_fd = open((const char *)i->data.filename, O_CREAT | O_WRONLY);
+        if (new_fd == -1)
+        {
+            fprintf(
+                stderr, "[archiver]: Ошибка! %s. Пропущено\n", strerror(errno));
+            continue;
+        }
+        chmod((const char *)i->data.filename, i->data.mask);
+        lseek(fd, i->data._offset, SEEK_SET);
+
+        uint64_t bytes = i->data.filesize;
+        char buf[BUFFER_SIZE];
+        while (bytes > BUFFER_SIZE)
+        {
+            read(fd, buf, BUFFER_SIZE);
+            write(new_fd, buf, BUFFER_SIZE);
+            bytes -= BUFFER_SIZE;
+        }
+
+        if (bytes > 0)
+        {
+            read(fd, buf, bytes);
+            write(new_fd, buf, bytes);
+        }
+
+        close(fd);
+    }
+
+
+    free_fi_list(header);
+    close(fd);
+}
+
+int remove_node_from_fi_list(fi_list_t *h, fi_list_t *to)
+{
+    if (h->eof || to->eof) return -1; // Мы не хотим удалить конец, сломав список
+    
+    fi_list_t *to_del = to->next;
+    to->next = to->next->next;
+    free(to_del);
+    return 0;
 }
 
