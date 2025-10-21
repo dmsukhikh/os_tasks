@@ -15,20 +15,21 @@
 /**
  * \mainpage archiver.c - простой архиватор
  *
+ * ## Описание формата архива
  * Архив имеет следующую структуру: вначале последовательно идут структуры
  * file_info, после этого - содержимое файлов, идущее подряд. Конец заголовка -
  * 4 нулевых байтов (0000 0000). Для эффективной работы с заголовком архива
- * (структуры file_info вначале) существует связный список fi_list
- *
+ * (структуры file_info вначале) существует связный список fi_list.
  * При добавлении (insert) информация о файле добавляется в конец заголовка, а
  * данные добавляются в таком же порядке в конец файла
  *
  * __Ограничения__:
  * * Файл должен быть регулярным
- * * Файл должен идти на вход программы не по пути - только имя с расширением
- * Возможно, это будет сделано в будущем
  * * Имена файлов не должны повторяться (ничего не сломается, просто не надо)
  *
+ * ## Тонкости
+ * При указании файла по какому-то сложному пути во время добавления файла в
+ * архив программа обрезает путь, занося в архив только название
  *
  * \todo Сделать проверку на уникальность файла, который мы вставляем
  * \todo Сделать вставку контроллирующей последовательности в начало архива,
@@ -222,13 +223,16 @@ void extract_files(char *archive, int fnums, char **fnames);
  * //...
  * fi_list_t fictive;
  * fictive.next = header;
- * for (fi_list_t *i = header; !i->eof; i = i->next)
+ * fictive.eof = 0;
+ * for (fi_list_t *i = &fictive; !i->next->eof; )
  * {
- *     if (something_wrong_with(i))
+ *     if (something_wrong_with(i->next))
  *     {
  *         remove_node_from_fi_list(&fictive, i);
  *         header = fictive.next;
+ *         continue;
  *     }
+ *     i = i->next;
  * }
  *
  * \endcode
@@ -488,8 +492,18 @@ int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list
         }
 
         file_info_t fi;
-        memcpy(fi.filename, fnames[i], strlen(fnames[i])+1);
-        
+        char *start_plain_name = strrchr(fnames[i], '/');
+
+        if (start_plain_name == NULL)
+        {
+            memcpy(fi.filename, fnames[i], strlen(fnames[i]) + 1);
+        }
+        else
+        {
+            memcpy(fi.filename, start_plain_name + 1,
+                strlen(start_plain_name + 1) + 1);
+        }
+
         // Добавляем размер файла
         {
             // Мы открывали файл раньше, так что проверок не делаем
