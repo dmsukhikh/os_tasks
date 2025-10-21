@@ -679,10 +679,10 @@ void extract_files(char *archive, int fnums, char **fnames)
             i = i->next;
         }
     }
+
     
     for (fi_list_t *i = header; !i->eof; i = i->next)
     {
-        printf("%s\n", i->data.filename);
         int new_fd = open((const char *)i->data.filename, O_CREAT | O_WRONLY);
         if (new_fd == -1)
         {
@@ -691,6 +691,7 @@ void extract_files(char *archive, int fnums, char **fnames)
             continue;
         }
         chmod((const char *)i->data.filename, i->data.mask);
+
         lseek(fd, i->data._offset, SEEK_SET);
 
         uint64_t bytes = i->data.filesize;
@@ -708,7 +709,7 @@ void extract_files(char *archive, int fnums, char **fnames)
             write(new_fd, buf, bytes);
         }
 
-        close(fd);
+        close(new_fd);
     }
 
 
