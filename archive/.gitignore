@@ -1,3 +1,4 @@
 archiver
 *.o
 test/
+docs/

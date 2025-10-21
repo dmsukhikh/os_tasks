@@ -7,8 +7,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-
 #define FILENAME_LENGTH 255
 #define HEADER_ENDING_SIZE 4
 #define BUFFER_SIZE 1024
@@ -23,6 +21,8 @@
  *
  * При добавлении (insert) информация о файле добавляется в конец заголовка, а
  * данные добавляются в таком же порядке в конец файла
+ * \todo Сделать проверку на уникальность файла, который мы вставляем 
+ * \todo текст под плашкой
  */
 
 /**
@@ -51,21 +51,15 @@ struct file_info
 /**
  * Декодированный заголовок архива
  *
- * fi_list == NULL - конец связного списка
+ * fi_list->eof  - конец связного списка
  */
 struct fi_list
 {
     file_info_t data;
     struct fi_list *next;
+    char eof; //!< Конец списка
 };
 typedef struct fi_list fi_list_t;
-
-/**
- * Глобальная переменная для доступа к заголовку архива
- *
- * \see read_header
- */
-fi_list_t *global_fi_list = NULL;
 
 /**
  * Состояния программы
@@ -124,31 +118,63 @@ void input_files(char* archive, int fnums, char** fnames);
 
 /**
  * Читает заголовок (см. документацию к файлу archiver.c), заполняя
- * global_fi_list. После устанавливает указатель в файле на начало (rewind)
+ * связный список head. После устанавливает указатель в файле на начало (rewind)
+ * \param head Указатель на начало связного списка
+ * \param arch_fd Файловый дескриптор архива
  */
-void read_header(int arch_fd);
+void read_header(fi_list_t *head, int arch_fd);
 
 /**
- * Очищает global_fi_list
+ * Очищает связный список head
  */
-void free_fi_list();
+void free_fi_list(fi_list_t *head);
 
 /**
- * Возвращает конец связного списка global_fi_list
+ * Возвращает конец связного списка head
  *
  * \return Указатель на конец global_fi_list или NULL, если не инициализировано
  */
-fi_list_t *end_global_fi_list();
+fi_list_t *end_fi_list(fi_list_t *head);
 
 /**
- * Создает пустую ноду в конце global_fi_list
+ * Создает пустую ноду в конце связного списка head
  *
- * \return Новую ноду в конце global_fi_list
+ * \return Новую ноду в конце head 
  */
-fi_list_t *make_new_node_in_global_fi_list();
+fi_list_t *make_new_node_in_fi_list(fi_list_t *head);
 
-// Алгоритм поворота
-// 4 3 2 1 -> 3 4 1 2 -> 1 2 3 4
+/**
+ * Создает связный список
+ */
+fi_list_t *init_list();
+
+/**
+ * Обновляет заголовок, вставляя информацию о файлах fnames в конец заголовка
+ * \param Указатель на начало связного списка - заголовка архива
+ * \param start Указатель на переменную, куда функция запишет позицию в списке,
+ * откуда начинаются новые файлы. Если start == 0, то ничего не будет записано
+ * \return количество вставленных файлов
+ */
+int update_header_for_input(
+    fi_list_t* header, int fnums, char** fnames, fi_list_t** start);
+
+/**
+ * Обновляет оффсеты в заголовке
+ */
+void update_offsets_in_header_for_input(fi_list_t *header);
+
+/**
+ * Непосредственно вставляет файлы в архив
+ *
+ * Вставка происходит посредством создания нового файла и копирования туда всего
+ * содержимого из старого архива
+ * \param header Заголовок архива
+ * \param oldfd Файловый дескриптор открытого архива
+ * \param newfd Файловый дескриптор нового архива, куда будут добавлены файлы
+ * \param fnums Количество файлов
+ * \param fnames Массив названий файлов, которые необходимо добавить в архив
+ */
+void insert_files_routine(fi_list_t *header, int oldfd, int newfd, int fnums, char **fnames);
 
 int main(int argc, char **argv)
 {
@@ -265,28 +291,112 @@ void input_files(char* archive, int fnums, char** fnames)
 {
     const char *new_fd_name = ".supertemp.egleser";
 
-    int new_fd = open(new_fd_name, O_CREAT | O_RDWR, 0644);
-    int fd = open(archive, O_CREAT | O_RDONLY, 0644); 
+    int new_fd = open(new_fd_name, O_CREAT | O_RDWR, 0666);
+    int fd = open(archive, O_CREAT | O_RDONLY, 0666); 
     if (fd == -1 || new_fd == -1)
     {
         print_err(ERR_OPEN);
     }
 
-    read_header(fd);
+    fi_list_t *new_header = init_list();
+    read_header(new_header, fd);
 
     if (fnums == 0)
     {
         close(fd);
         close(new_fd);
-        free_fi_list();
+        free_fi_list(new_header);
         print_err(ERR_INPUT_NOFILES);
     }
 
-    struct stat stat_file;
-    fi_list_t* app_files_start
-        = 0; // Позиция в связном списке, откуда начинается набор новых фильмов
-    int inserted_files = 0;
+    if (update_header_for_input(new_header, fnums, fnames, 0) == 0)
+    {
+        close(fd);
+        close(new_fd);
+        free_fi_list(new_header);
+        print_err(ERR_INPUT_NOAPP);
+    }
 
+    update_offsets_in_header_for_input(new_header);
+    insert_files_routine(new_header, fd, new_fd, fnums, fnames);
+
+    remove(archive);
+    rename(new_fd_name,
+        archive); // странно, но это работает
+                  // Если мы назовем файл "temp/nice.txt", то все сработает
+
+    close(fd);
+    close(new_fd);
+    free_fi_list(new_header);
+}
+
+void read_header(fi_list_t *header, int arch_fd)
+{
+    uint32_t header_ending = 0, buf;
+    for (;;)
+    {
+        // check for header ending
+        if (read(arch_fd, &buf, HEADER_ENDING_SIZE) == 0) 
+        {
+            if (!errno) break; // empty file 
+            else
+            {
+                close(arch_fd);
+                free_fi_list(header);
+                perror("err: ");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        // Здесь, нас не заботит byte order, поскольку значение 0x0 симметрично
+        // Если условие выполняется, заголовок кончился
+        if (header_ending == buf)
+            break;
+        // Возвращаемся назад...
+        lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR); 
+
+        // ... И читаем file_info
+        fi_list_t *info = make_new_node_in_fi_list(header);
+
+        read(arch_fd, &info->data, sizeof(file_info_t));
+    }
+    lseek(arch_fd, 0, SEEK_SET);
+}
+
+void free_fi_list(fi_list_t *header)
+{
+    for (fi_list_t *i = header; i != NULL; ) // тут именно != NULL, а не !eof
+    {
+        fi_list_t *d = i->next;
+        free(i);
+        i = d;
+    }
+}
+
+fi_list_t* end_fi_list(fi_list_t *header)
+{
+    fi_list_t* i = header;
+    if (!i)
+        return i;
+
+    for (; !i->eof; i = i->next);
+    return i;
+}
+
+fi_list_t* make_new_node_in_fi_list(fi_list_t *h)
+{
+    fi_list_t *i = h;
+    for (; !i->eof; i = i->next);
+
+    i->next = init_list();
+    i->eof = 0;
+    return i;
+}
+
+int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list_t ** start)
+{
+    int inserted_files = 0; 
+    struct stat stat_file;
     for (int i = 0; i < fnums; ++i)
     {
         if (stat(fnames[i], &stat_file) == -1)
@@ -315,151 +425,84 @@ void input_files(char* archive, int fnums, char** fnames)
             int _offset_fd = open(fnames[i], O_RDONLY);
             fi.filesize = lseek(_offset_fd, 0, SEEK_END);
             close(_offset_fd);
-            printf("dbg: %s %lu\n", fnames[i], fi.filesize);
         }
 
         fi.mask = stat_file.st_mode & 0777;
         fi._offset = 0; // Будет добавлено позднее в коде
        
-        fi_list_t *n = make_new_node_in_global_fi_list();
+        fi_list_t *n = make_new_node_in_fi_list(header);
+
+        if (start != NULL && *start == 0) *start = n;
+        
         memcpy(&n->data, &fi, sizeof(file_info_t));
-        if (!app_files_start) app_files_start = n;
         inserted_files++;
     }
 
-    if (inserted_files == 0)
-    {
-        close(fd);
-        close(new_fd);
-        free_fi_list();
-        print_err(ERR_INPUT_NOAPP);
-    }
-
-    // Обновление оффсетов в global_fi_list
-    {
-        uint64_t res_offset;
-        for (fi_list_t *i = global_fi_list; i != app_files_start; i = i->next)
-        {
-            res_offset += i->data.filesize;
-            i->data._offset += sizeof(file_info_t) * inserted_files;
-        }
-
-        for (fi_list_t *i = app_files_start; i != NULL; i = i->next)
-        {
-            i->data._offset = sizeof(file_info_t) * inserted_files + res_offset;
-            res_offset += i->data.filesize;
-        }
-    }
-
-    // Добавляем новую инфу в temp
-    {
-        for (fi_list_t *i = global_fi_list; i != NULL; i = i->next)
-        {
-            write(new_fd, &i->data, sizeof(file_info_t));
-        }
-
-        // Пишем заголовок
-        uint32_t t = 0;
-        write(new_fd, &t, HEADER_ENDING_SIZE);
-        
-        lseek(fd, 0, SEEK_SET);
-        char buf[BUFFER_SIZE];
-
-        while (read(fd, buf, BUFFER_SIZE) > 0)
-        {
-            write(new_fd, buf, BUFFER_SIZE);
-        }
-        lseek(fd, 0, SEEK_END);
-
-        for (int i = 0; i < fnums; ++i)
-        {
-            int app_fd = open(fnames[i], O_RDONLY);
-            if (fd == -1) continue;
-            while (read(app_fd, buf, BUFFER_SIZE) > 0)
-            {
-                write(new_fd, buf, BUFFER_SIZE);
-            }
-            close(app_fd);
-        }
-    }
-
-    remove(archive);
-    rename(new_fd_name,
-        archive); // странно, но это работает
-                  // Если мы назовем файл "temp/nice.txt", то все сработает
-
-    close(fd);
-    close(new_fd);
-    free_fi_list();
+    return inserted_files;
 }
 
-void read_header(int arch_fd)
+void insert_files_routine(fi_list_t *header, int fd, int new_fd, int fnums, char** fnames)
 {
-    uint32_t header_ending = 0, buf;
-    for (;;)
+    for (fi_list_t* i = header; !i->eof; i = i->next)
     {
-        // check for header ending
-        if (read(arch_fd, &buf, HEADER_ENDING_SIZE) == 0) 
-        {
-            if (!errno) break; // empty file 
-            else
-            {
-                close(arch_fd);
-                free_fi_list();
-                perror("err: ");
-                exit(EXIT_FAILURE);
-            }
-        }
-
-        // Здесь, нас не заботит byte order, поскольку значение 0x0 симметрично
-        // Если условие выполняется, заголовок кончился
-        if (header_ending == buf)
-            break;
-        // Возвращаемся назад...
-        lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR); 
-
-        // ... И читаем file_info
-        fi_list_t *info = make_new_node_in_global_fi_list();
-
-        read(arch_fd, &info->data, sizeof(file_info_t));
+        write(new_fd, &i->data, sizeof(file_info_t));
     }
-    lseek(arch_fd, 0, SEEK_SET);
-}
 
-void free_fi_list()
-{
-    for (fi_list_t *i = global_fi_list; i != NULL; )
+    // Пишем заголовок
+    uint32_t t = 0;
+    write(new_fd, &t, HEADER_ENDING_SIZE);
+
+    // Читаем старый архив
+    fi_list_t *oldh = init_list();
+    read_header(oldh, fd);
+    uint64_t off = oldh->data._offset;
+    free_fi_list(oldh);
+
+    // Перемещение к началу сырых данных
+    if (lseek(fd, 0, SEEK_END) != 0) // Проверка на непустой массив
     {
-        fi_list_t *d = i->next;
-        free(i);
-        i = d;
+        lseek(fd, off, SEEK_SET);
+    }
+    char buf[BUFFER_SIZE];
+    ssize_t reads = 0;
+
+    while ((reads = read(fd, buf, BUFFER_SIZE)) > 0)
+    {
+        write(new_fd, buf, reads);
+    }
+
+    for (int i = 0; i < fnums; ++i)
+    {
+        int app_fd = open(fnames[i], O_RDONLY);
+        if (fd == -1)
+            continue;
+        while ((reads = read(app_fd, buf, BUFFER_SIZE)) > 0)
+        {
+            write(new_fd, buf, reads);
+        }
+        close(app_fd);
     }
 }
 
-fi_list_t* end_global_fi_list()
+void update_offsets_in_header_for_input(fi_list_t* header)
 {
-    fi_list_t* i = global_fi_list;
-    if (!i)
-        return i;
+    uint64_t raw_off = 0, total_header_nodes = 0;
 
-    for (; i->next != NULL; i = i->next);
-    return i;
+    for (fi_list_t* i = header; !i->eof;
+        i = i->next, total_header_nodes++);
+
+    for (fi_list_t* i = header; !i->eof; i = i->next)
+    {
+        i->data._offset = sizeof(file_info_t) * total_header_nodes
+            + HEADER_ENDING_SIZE + raw_off;
+        raw_off += i->data.filesize;
+    }
 }
 
-fi_list_t* make_new_node_in_global_fi_list()
+fi_list_t *init_list()
 {
-
-    fi_list_t* info = end_global_fi_list();
-    if (!info)
-    {
-        global_fi_list = malloc(sizeof(fi_list_t));
-        info = global_fi_list;
-    }
-    else
-    {
-        info->next = malloc(sizeof(fi_list_t));
-        info = info->next;
-    }
-    info->next = NULL;
-    return info;
+    fi_list_t *t = malloc(sizeof(fi_list_t));
+    t->next = NULL;
+    t->eof = 1;
+    return t;
 }
