@@ -7,12 +7,13 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#define FILENAME_LENGTH 255
+#define FILENAME_LENGTH 256
 #define HEADER_ENDING_SIZE 4
 #define BUFFER_SIZE 1024
+#define HR_FS_BUFFER_SIZE 20
 
 /**
- * \file archiver.c - простой архиватор
+ * \mainpage archiver.c - простой архиватор
  *
  * Архив имеет следующую структуру: вначале последовательно идут структуры
  * file_info, после этого - содержимое файлов, идущее подряд. Конец заголовка -
@@ -21,8 +22,9 @@
  *
  * При добавлении (insert) информация о файле добавляется в конец заголовка, а
  * данные добавляются в таком же порядке в конец файла
- * \todo Сделать проверку на уникальность файла, который мы вставляем 
- * \todo текст под плашкой
+ * \todo Сделать проверку на уникальность файла, который мы вставляем
+ * \todo Сделать вставку контроллирующей последовательности в начало архива,
+ * чтобы программа могла отличать файлы-архивы от файлов-неархивов
  */
 
 /**
@@ -86,7 +88,7 @@ enum err_code
     ERR_ARGS, //!< Ошибка при парсинге аргументов
     ERR_INPUT_NOFILES, //!< Не переданы файлы для вставки в архив
     ERR_OPEN, //!< Ошибка при открытии файла
-    ERR_INPUT_NOAPP
+    ERR_INPUT_NOAPP //!< Никакой из новых файлов не вставлен
 };
 
 /**
@@ -117,7 +119,7 @@ void print_err(enum err_code code);
 void input_files(char* archive, int fnums, char** fnames);
 
 /**
- * Читает заголовок (см. документацию к файлу archiver.c), заполняя
+ * Читает заголовок (см. документацию \ref index "к основной странице"), заполняя
  * связный список head. После устанавливает указатель в файле на начало (rewind)
  * \param head Указатель на начало связного списка
  * \param arch_fd Файловый дескриптор архива
@@ -176,6 +178,22 @@ void update_offsets_in_header_for_input(fi_list_t *header);
  */
 void insert_files_routine(fi_list_t *header, int oldfd, int newfd, int fnums, char **fnames);
 
+/**
+ * "Human-readable" размер файла
+ *
+ * Перевести количество байт в нормальный, понятный для человека вид. Сохраняет
+ * строку в буффер buf
+ *
+ * \param buf Статический массив длины HR_FS_BUFFER_SIZE (включая '\0'), в
+ * который будет сохраняться строка
+ */
+void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE]);
+
+/**
+ * Выводит статистику файла в стандартный поток вывода
+ */
+void stat_archive(char *archive);
+
 int main(int argc, char **argv)
 {
     switch(parse_args(argc, argv))
@@ -186,6 +204,10 @@ int main(int argc, char **argv)
 
         case MODE_INPUT:
             input_files(argv[1], argc-3, argv+3);
+            break;
+
+        case MODE_STAT:
+            stat_archive(argv[1]);
             break;
 
         case MODE_UNDEF:
@@ -227,12 +249,12 @@ enum prog_mode parse_args(int argc, char **argv)
 
     if (strcmp(argv[2], "-r") == 0 || strcmp(argv[2], "--remove") == 0)
     {
-        return MODE_EXTRACT;
+        return MODE_REMOVE;
     }
 
     if (strcmp(argv[2], "-s") == 0 || strcmp(argv[2], "--stat") == 0)
     {
-        return MODE_EXTRACT;
+        return MODE_STAT;
     }
 
     return MODE_UNDEF;
@@ -417,7 +439,7 @@ int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list
         }
 
         file_info_t fi;
-        memcpy(fi.filename, fnames[i], strlen(fnames[i]));
+        memcpy(fi.filename, fnames[i], strlen(fnames[i])+1);
         
         // Добавляем размер файла
         {
@@ -506,3 +528,59 @@ fi_list_t *init_list()
     t->eof = 1;
     return t;
 }
+
+void stat_archive(char *archive)
+{
+    int fd = open(archive, O_RDONLY);     
+    if (fd == -1)
+    {
+        print_err(ERR_OPEN);
+    }
+
+    fi_list_t *h = init_list();
+    read_header(h, fd);
+
+    // выравнивание
+    unsigned int name_align = 4, size_align = 6;
+    for (fi_list_t *i = h; !i->eof; i = i->next)
+    {
+        char buf[HR_FS_BUFFER_SIZE];
+        hr_file_size(i->data.filesize, buf);
+        size_align = size_align > strlen(buf) ? size_align : strlen(buf);
+        name_align = name_align > strlen((char*)i->data.filename)
+            ? size_align
+            : strlen((char*)i->data.filename);
+    }
+
+    printf("--- Архив: %s ---\n", archive);
+    printf("%-*s %-*s\n", name_align+4, "Файл", size_align+6, "Размер");
+    for (fi_list_t* i = h; !i->eof; i = i->next)
+    {
+        char buf[HR_FS_BUFFER_SIZE];
+        hr_file_size(i->data.filesize, buf);
+        printf("%-*s %-*s\n", name_align, i->data.filename, size_align, buf);
+    }
+}
+
+void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE])
+{
+    memset(buf, '\0', HR_FS_BUFFER_SIZE);
+    if (s < 512)
+    {
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%luБ", s);
+    }
+    else if (s < 1024*512)
+    {
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fКБ", s/1024.f);
+    }
+    else if (s < 1024*1024*512)
+    {
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fMБ", s/1024.f/1024.f);
+    }
+    else if (s < 1024*1024*1024*512ll)
+    {
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fГБ", s/1024.f/1024.f/1024.f);
+    }
+
+}
+
