@@ -52,13 +52,12 @@ typedef struct file_info file_info_t;
 #pragma pack(push, 1)
 struct file_info
 {
-    uint8_t  filename[FILENAME_LENGTH]; //!< Имя файла
+    uint8_t filename[FILENAME_LENGTH]; //!< Имя файла
     uint64_t filesize; //!< Размер файла (в файле)
     uint64_t mask; //!< Маска прав доступа к файлу
     uint64_t _offset; //!< Положение файла в архиве
 };
 #pragma pack(pop)
-
 
 /**
  * Декодированный заголовок архива
@@ -68,7 +67,7 @@ struct file_info
 struct fi_list
 {
     file_info_t data;
-    struct fi_list *next;
+    struct fi_list* next;
     char eof; //!< Конец списка
 };
 typedef struct fi_list fi_list_t;
@@ -105,7 +104,7 @@ enum err_code
 /**
  * Определить режим работы по аргументам программы
  */
-enum prog_mode parse_args(int argc, char **argv);
+enum prog_mode parse_args(int argc, char** argv);
 
 /**
  * Вывести сообщение-справку о работе программы
@@ -115,7 +114,8 @@ void print_help();
 /**
  * Вывести сообщение об ошибке и завершить программу
  *
- * После вывода сообщения о ошибке в stderr завершает программу с кодом EXIT_FAILURE
+ * После вывода сообщения о ошибке в stderr завершает программу с кодом
+ * EXIT_FAILURE
  *
  * \param code Тип ошибки
  */
@@ -130,36 +130,37 @@ void print_err(enum err_code code);
 void input_files(char* archive, int fnums, char** fnames);
 
 /**
- * Читает заголовок (см. документацию \ref index "к основной странице"), заполняя
- * связный список head. После устанавливает указатель в файле на начало (rewind)
+ * Читает заголовок (см. документацию \ref index "к основной странице"),
+ * заполняя связный список head. После устанавливает указатель в файле на начало
+ * (rewind)
  * \param head Указатель на начало связного списка
  * \param arch_fd Файловый дескриптор архива
  */
-void read_header(fi_list_t *head, int arch_fd);
+void read_header(fi_list_t* head, int arch_fd);
 
 /**
  * Очищает связный список head
  */
-void free_fi_list(fi_list_t *head);
+void free_fi_list(fi_list_t* head);
 
 /**
  * Возвращает конец связного списка head
  *
  * \return Указатель на конец global_fi_list или NULL, если не инициализировано
  */
-fi_list_t *end_fi_list(fi_list_t *head);
+fi_list_t* end_fi_list(fi_list_t* head);
 
 /**
  * Создает пустую ноду в конце связного списка head
  *
- * \return Новую ноду в конце head 
+ * \return Новую ноду в конце head
  */
-fi_list_t *make_new_node_in_fi_list(fi_list_t *head);
+fi_list_t* make_new_node_in_fi_list(fi_list_t* head);
 
 /**
  * Создает связный список
  */
-fi_list_t *init_fi_list();
+fi_list_t* init_fi_list();
 
 /**
  * Обновляет заголовок, вставляя информацию о файлах fnames в конец заголовка
@@ -174,7 +175,7 @@ int update_header_for_input(
 /**
  * Обновляет оффсеты в заголовке
  */
-void update_offsets_in_header(fi_list_t *header);
+void update_offsets_in_header(fi_list_t* header);
 
 /**
  * Непосредственно вставляет файлы в архив
@@ -187,7 +188,8 @@ void update_offsets_in_header(fi_list_t *header);
  * \param fnums Количество файлов
  * \param fnames Массив названий файлов, которые необходимо добавить в архив
  */
-void insert_files_routine(fi_list_t *header, int oldfd, int newfd, int fnums, char **fnames);
+void insert_files_routine(
+    fi_list_t* header, int oldfd, int newfd, int fnums, char** fnames);
 
 /**
  * "Human-readable" размер файла
@@ -203,15 +205,16 @@ void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE]);
 /**
  * Выводит статистику файла в стандартный поток вывода
  */
-void stat_archive(char *archive);
+void stat_archive(char* archive);
 
 /**
  * Получить файлы из архива
  * \param archive Название архива
- * \param fnums Количество файлов, которые надо извлечь. Если передан 0, то будет извлечен весь архив
+ * \param fnums Количество файлов, которые надо извлечь. Если передан 0, то
+ * будет извлечен весь архив
  * \param fnames Массив файлов, которые необходимо извлачь
  */
-void extract_files(char *archive, int fnums, char **fnames);
+void extract_files(char* archive, int fnums, char** fnames);
 
 /**
  * Удаляет ноду, следующую за _to_ из связного списка _h_
@@ -248,7 +251,8 @@ int remove_node_from_fi_list(fi_list_t* h, fi_list_t* to);
  * \param delete_existed Флаг, определяющий, что удалять. 1 - удалять то, что
  * указано в fnames. 0 - удалять то, что __НЕ__ указано в fnames
  */
-void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char delete_existed);
+void remove_files_from_header(
+    fi_list_t** header, int fnums, char** fnames, char delete_existed);
 
 /**
  * Копирует _bytes_ байт из файла _old_ в файл _new_
@@ -256,7 +260,7 @@ void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char
  * Копирование происходит в конец файла _new_
  *
  * \param old Дескриптор файла, откуда копируем. Должен быть открыт на чтение
- * \param new Дескриптор файла, куда копируем. Должен быть открыт на запись 
+ * \param new Дескриптор файла, куда копируем. Должен быть открыт на запись
  * \param bytes Количество байт с начала файла _old_, которые нужно скопировать
  * \param pos Позиция в _old_, откуда начинается копирование
  */
@@ -265,43 +269,43 @@ void copy_file(int old, int new, uint64_t bytes, off_t pos);
 /**
  * Тоже ясно. Процедура для флага "-r"
  */
-void remove_files(char *archive, int fnums, char **fnames);
+void remove_files(char* archive, int fnums, char** fnames);
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-    switch(parse_args(argc, argv))
+    switch (parse_args(argc, argv))
     {
-        case MODE_HELP:
-            print_help();
-            break;
+    case MODE_HELP:
+        print_help();
+        break;
 
-        case MODE_INPUT:
-            input_files(argv[1], argc-3, argv+3);
-            break;
+    case MODE_INPUT:
+        input_files(argv[1], argc - 3, argv + 3);
+        break;
 
-        case MODE_STAT:
-            stat_archive(argv[1]);
-            break;
+    case MODE_STAT:
+        stat_archive(argv[1]);
+        break;
 
-        case MODE_EXTRACT:
-            extract_files(argv[1], argc-3, argv+3);
-            break;
+    case MODE_EXTRACT:
+        extract_files(argv[1], argc - 3, argv + 3);
+        break;
 
-        case MODE_REMOVE:
-            remove_files(argv[1], argc-3, argv+3);
-            break;
+    case MODE_REMOVE:
+        remove_files(argv[1], argc - 3, argv + 3);
+        break;
 
-        case MODE_UNDEF:
-            print_err(ERR_ARGS);
-            break;
+    case MODE_UNDEF:
+        print_err(ERR_ARGS);
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
     exit(EXIT_SUCCESS);
 }
 
-enum prog_mode parse_args(int argc, char **argv)
+enum prog_mode parse_args(int argc, char** argv)
 {
     if (argc < 2) // without args
     {
@@ -348,7 +352,8 @@ void print_help()
            " [АРХИВ] -r(--remove)  [ФАЙЛ,...] - Удалить файл(ы) из архива\n"
            " [АРХИВ] -i(--insert)  [ФАЙЛ,...] - Вставить файл(ы) в архив\n"
            " [АРХИВ] -e(--extract) [ФАЙЛ,...] - Получить файлы из архива\n"
-           "         Если не указывать файлы, то извлечется все содержимое архива\n"
+           "         Если не указывать файлы, то извлечется все содержимое "
+           "архива\n"
            " [АРХИВ] -s(--stat)               - Вывести информацию о архиве\n"
            "---\n"
            "prod. by dmsukhikh\n");
@@ -356,56 +361,56 @@ void print_help()
 
 void print_err(enum err_code code)
 {
-    char *errmsg = 0;
+    char* errmsg = 0;
     switch (code)
     {
-        case ERR_ARGS:
-            errmsg = "Ошибка при разборе аргументов";
-            break;
+    case ERR_ARGS:
+        errmsg = "Ошибка при разборе аргументов";
+        break;
 
-        case ERR_INPUT_NOFILES:
-            errmsg = "Не указаны файлы для вставки в архив";
-            break;
+    case ERR_INPUT_NOFILES:
+        errmsg = "Не указаны файлы для вставки в архив";
+        break;
 
-        case ERR_OPEN:
-            errmsg = "Ошибка при открытии файла";
-            break;
+    case ERR_OPEN:
+        errmsg = "Ошибка при открытии файла";
+        break;
 
-        case ERR_INPUT_NOAPP:
-            errmsg = "Не добавлен ни один указанный файл";
-            break;
+    case ERR_INPUT_NOAPP:
+        errmsg = "Не добавлен ни один указанный файл";
+        break;
 
-        case ERR_REMOVE_NOFILES:
-            errmsg = "Не указаны файлы для удаления из архива";
-            break;
+    case ERR_REMOVE_NOFILES:
+        errmsg = "Не указаны файлы для удаления из архива";
+        break;
     }
 
     if (errno == 0)
     {
-        fprintf(stderr, "[archiver]: %s. См. \"archiver --help\" для справки\n", errmsg);
+        fprintf(stderr, "[archiver]: %s. См. \"archiver --help\" для справки\n",
+            errmsg);
     }
     else
     {
         fprintf(stderr,
-            "[archiver]: %s, %s. \nСм. \"archiver --help\" для справки\n", errmsg,
-            strerror(errno));
+            "[archiver]: %s, %s. \nСм. \"archiver --help\" для справки\n",
+            errmsg, strerror(errno));
     }
     exit(EXIT_FAILURE);
 }
 
-
 void input_files(char* archive, int fnums, char** fnames)
 {
-    const char *new_fd_name = ".supertemp.egleser";
+    const char* new_fd_name = ".supertemp.egleser";
 
     int new_fd = open(new_fd_name, O_CREAT | O_RDWR, 0666);
-    int fd = open(archive, O_CREAT | O_RDONLY, 0666); 
+    int fd = open(archive, O_CREAT | O_RDONLY, 0666);
     if (fd == -1 || new_fd == -1)
     {
         print_err(ERR_OPEN);
     }
 
-    fi_list_t *new_header = init_fi_list();
+    fi_list_t* new_header = init_fi_list();
     read_header(new_header, fd);
 
     if (fnums == 0)
@@ -437,15 +442,16 @@ void input_files(char* archive, int fnums, char** fnames)
     free_fi_list(new_header);
 }
 
-void read_header(fi_list_t *header, int arch_fd)
+void read_header(fi_list_t* header, int arch_fd)
 {
     uint32_t header_ending = 0, buf;
     for (;;)
     {
         // check for header ending
-        if (read(arch_fd, &buf, HEADER_ENDING_SIZE) == 0) 
+        if (read(arch_fd, &buf, HEADER_ENDING_SIZE) == 0)
         {
-            if (!errno) break; // empty file 
+            if (!errno)
+                break; // empty file
             else
             {
                 close(arch_fd);
@@ -460,27 +466,27 @@ void read_header(fi_list_t *header, int arch_fd)
         if (header_ending == buf)
             break;
         // Возвращаемся назад...
-        lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR); 
+        lseek(arch_fd, -HEADER_ENDING_SIZE, SEEK_CUR);
 
         // ... И читаем file_info
-        fi_list_t *info = make_new_node_in_fi_list(header);
+        fi_list_t* info = make_new_node_in_fi_list(header);
 
         read(arch_fd, &info->data, sizeof(file_info_t));
     }
     lseek(arch_fd, 0, SEEK_SET);
 }
 
-void free_fi_list(fi_list_t *header)
+void free_fi_list(fi_list_t* header)
 {
-    for (fi_list_t *i = header; i != NULL; ) // тут именно != NULL, а не !eof
+    for (fi_list_t* i = header; i != NULL;) // тут именно != NULL, а не !eof
     {
-        fi_list_t *d = i->next;
+        fi_list_t* d = i->next;
         free(i);
         i = d;
     }
 }
 
-fi_list_t* end_fi_list(fi_list_t *header)
+fi_list_t* end_fi_list(fi_list_t* header)
 {
     fi_list_t* i = header;
     if (!i)
@@ -490,9 +496,9 @@ fi_list_t* end_fi_list(fi_list_t *header)
     return i;
 }
 
-fi_list_t* make_new_node_in_fi_list(fi_list_t *h)
+fi_list_t* make_new_node_in_fi_list(fi_list_t* h)
 {
-    fi_list_t *i = h;
+    fi_list_t* i = h;
     for (; !i->eof; i = i->next);
 
     i->next = init_fi_list();
@@ -500,9 +506,10 @@ fi_list_t* make_new_node_in_fi_list(fi_list_t *h)
     return i;
 }
 
-int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list_t ** start)
+int update_header_for_input(
+    fi_list_t* header, int fnums, char** fnames, fi_list_t** start)
 {
-    int inserted_files = 0; 
+    int inserted_files = 0;
     struct stat stat_file;
     for (int i = 0; i < fnums; ++i)
     {
@@ -524,7 +531,7 @@ int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list
         }
 
         file_info_t fi;
-        char *start_plain_name = strrchr(fnames[i], '/');
+        char* start_plain_name = strrchr(fnames[i], '/');
 
         if (start_plain_name == NULL)
         {
@@ -546,11 +553,12 @@ int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list
 
         fi.mask = stat_file.st_mode & 0777;
         fi._offset = 0; // Будет добавлено позднее в коде
-       
-        fi_list_t *n = make_new_node_in_fi_list(header);
 
-        if (start != NULL && *start == 0) *start = n;
-        
+        fi_list_t* n = make_new_node_in_fi_list(header);
+
+        if (start != NULL && *start == 0)
+            *start = n;
+
         memcpy(&n->data, &fi, sizeof(file_info_t));
         inserted_files++;
     }
@@ -558,7 +566,8 @@ int update_header_for_input(fi_list_t *header, int fnums, char **fnames, fi_list
     return inserted_files;
 }
 
-void insert_files_routine(fi_list_t *header, int fd, int new_fd, int fnums, char** fnames)
+void insert_files_routine(
+    fi_list_t* header, int fd, int new_fd, int fnums, char** fnames)
 {
     for (fi_list_t* i = header; !i->eof; i = i->next)
     {
@@ -570,7 +579,7 @@ void insert_files_routine(fi_list_t *header, int fd, int new_fd, int fnums, char
     write(new_fd, &t, HEADER_ENDING_SIZE);
 
     // Читаем старый архив
-    fi_list_t *oldh = init_fi_list();
+    fi_list_t* oldh = init_fi_list();
     read_header(oldh, fd);
     uint64_t off = oldh->data._offset;
     free_fi_list(oldh);
@@ -605,8 +614,7 @@ void update_offsets_in_header(fi_list_t* header)
 {
     uint64_t raw_off = 0, total_header_nodes = 0;
 
-    for (fi_list_t* i = header; !i->eof;
-        i = i->next, total_header_nodes++);
+    for (fi_list_t* i = header; !i->eof; i = i->next, total_header_nodes++);
 
     for (fi_list_t* i = header; !i->eof; i = i->next)
     {
@@ -616,28 +624,28 @@ void update_offsets_in_header(fi_list_t* header)
     }
 }
 
-fi_list_t *init_fi_list()
+fi_list_t* init_fi_list()
 {
-    fi_list_t *t = malloc(sizeof(fi_list_t));
+    fi_list_t* t = malloc(sizeof(fi_list_t));
     t->next = NULL;
     t->eof = 1;
     return t;
 }
 
-void stat_archive(char *archive)
+void stat_archive(char* archive)
 {
-    int fd = open(archive, O_RDONLY);     
+    int fd = open(archive, O_RDONLY);
     if (fd == -1)
     {
         print_err(ERR_OPEN);
     }
 
-    fi_list_t *h = init_fi_list();
+    fi_list_t* h = init_fi_list();
     read_header(h, fd);
 
     // выравнивание
     unsigned int name_align = 4, size_align = 6;
-    for (fi_list_t *i = h; !i->eof; i = i->next)
+    for (fi_list_t* i = h; !i->eof; i = i->next)
     {
         char buf[HR_FS_BUFFER_SIZE];
         hr_file_size(i->data.filesize, buf);
@@ -647,9 +655,8 @@ void stat_archive(char *archive)
             : strlen((char*)i->data.filename);
     }
 
-
     printf("--- Архив: %s ---\n", archive);
-    printf("%-*s %-*s\n", name_align+4, "Файл", size_align+6, "Размер");
+    printf("%-*s %-*s\n", name_align + 4, "Файл", size_align + 6, "Размер");
     for (fi_list_t* i = h; !i->eof; i = i->next)
     {
         char buf[HR_FS_BUFFER_SIZE];
@@ -665,68 +672,69 @@ void hr_file_size(uint64_t s, char buf[HR_FS_BUFFER_SIZE])
     {
         snprintf(buf, HR_FS_BUFFER_SIZE, "%luБ", s);
     }
-    else if (s < 1024*512)
+    else if (s < 1024 * 512)
     {
-        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fКБ", s/1024.f);
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fКБ", s / 1024.f);
     }
-    else if (s < 1024*1024*512)
+    else if (s < 1024 * 1024 * 512)
     {
-        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fMБ", s/1024.f/1024.f);
+        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fMБ", s / 1024.f / 1024.f);
     }
-    else if (s < 1024*1024*1024*512ll)
+    else if (s < 1024 * 1024 * 1024 * 512ll)
     {
-        snprintf(buf, HR_FS_BUFFER_SIZE, "%.2fГБ", s/1024.f/1024.f/1024.f);
+        snprintf(
+            buf, HR_FS_BUFFER_SIZE, "%.2fГБ", s / 1024.f / 1024.f / 1024.f);
     }
-
 }
 
-void extract_files(char *archive, int fnums, char **fnames)
+void extract_files(char* archive, int fnums, char** fnames)
 {
-    int fd = open(archive, O_RDONLY);     
+    int fd = open(archive, O_RDONLY);
     if (fd == -1)
     {
         print_err(ERR_OPEN);
     }
 
-    fi_list_t *header = init_fi_list();
+    fi_list_t* header = init_fi_list();
     read_header(header, fd);
-    
+
     if (fnums != 0)
     {
         remove_files_from_header(&header, fnums, fnames, 0);
     }
 
-    for (fi_list_t *i = header; !i->eof; i = i->next)
+    for (fi_list_t* i = header; !i->eof; i = i->next)
     {
-        int new_fd = open((const char *)i->data.filename, O_CREAT | O_WRONLY);
+        int new_fd = open((const char*)i->data.filename, O_CREAT | O_WRONLY);
         if (new_fd == -1)
         {
             fprintf(
                 stderr, "[archiver]: Ошибка! %s. Пропущено\n", strerror(errno));
             continue;
         }
-        chmod((const char *)i->data.filename, i->data.mask);
+        chmod((const char*)i->data.filename, i->data.mask);
 
         copy_file(fd, new_fd, i->data.filesize, i->data._offset);
         close(new_fd);
     }
 
-
     free_fi_list(header);
     close(fd);
 }
 
-int remove_node_from_fi_list(fi_list_t *h, fi_list_t *to)
+int remove_node_from_fi_list(fi_list_t* h, fi_list_t* to)
 {
-    if (h->eof || to->eof) return -1; // Мы не хотим удалить конец, сломав список
-    
-    fi_list_t *to_del = to->next;
+    if (h->eof || to->eof)
+        return -1; // Мы не хотим удалить конец, сломав список
+
+    fi_list_t* to_del = to->next;
     to->next = to->next->next;
     free(to_del);
     return 0;
 }
 
-void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char flag)
+void remove_files_from_header(
+    fi_list_t** header, int fnums, char** fnames, char flag)
 {
     fi_list_t fictive;
     fictive.eof = 0;
@@ -748,7 +756,7 @@ void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char
     }
 }
 
-void remove_files(char *archive, int fnums, char **fnames)
+void remove_files(char* archive, int fnums, char** fnames)
 {
     if (fnums == 0)
     {
