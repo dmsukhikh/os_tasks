@@ -1,8 +1,21 @@
 #!/usr/bin/bash
 
 # Скрипт тестирования удаления из архива
+# usage: ./scr
+# ./scr clean - очистить файлы тестирования
 
 names=(a b c d)
+
+# Если мы хотим очистить файлы тестирования
+echo "$1"
+if [[ "$1" = "clean" ]]; then
+    echo "cleaning..."
+    rm -r template
+    rm test.egl
+    echo "done!"
+    exit 0
+fi;
+
 if [[ (-d template) ]]; then
     rm -r template
     echo "dir template was cleaned"
@@ -10,7 +23,7 @@ fi;
 
 if [[ (-e test.egl) ]]; then
     rm test.egl 
-    echo "dir template was cleaned"
+    echo "test.egl was cleaned"
 fi;
 
 mkdir template;
