@@ -99,7 +99,8 @@ enum err_code
     ERR_ARGS, //!< Ошибка при парсинге аргументов
     ERR_INPUT_NOFILES, //!< Не переданы файлы для вставки в архив
     ERR_OPEN, //!< Ошибка при открытии файла
-    ERR_INPUT_NOAPP //!< Никакой из новых файлов не вставлен
+    ERR_INPUT_NOAPP, //!< Никакой из новых файлов не вставлен
+    ERR_REMOVE_NOFILES //!< Не переданы файлы для удаления из архива
 };
 
 /**
@@ -174,7 +175,7 @@ int update_header_for_input(
 /**
  * Обновляет оффсеты в заголовке
  */
-void update_offsets_in_header_for_input(fi_list_t *header);
+void update_offsets_in_header(fi_list_t *header);
 
 /**
  * Непосредственно вставляет файлы в архив
@@ -243,6 +244,30 @@ void extract_files(char *archive, int fnums, char **fnames);
  */
 int remove_node_from_fi_list(fi_list_t* h, fi_list_t* to);
 
+/**
+ * Ясно
+ * \param delete_existed Флаг, определяющий, что удалять. 1 - удалять то, что
+ * указано в fnames. 0 - удалять то, что __НЕ__ указано в fnames
+ */
+void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char delete_existed);
+
+/**
+ * Копирует _bytes_ байт из файла _old_ в файл _new_
+ *
+ * Копирование происходит в конец файла _new_
+ *
+ * \param old Дескриптор файла, откуда копируем. Должен быть открыт на чтение
+ * \param new Дескриптор файла, куда копируем. Должен быть открыт на запись 
+ * \param bytes Количество байт с начала файла _old_, которые нужно скопировать
+ * \param pos Позиция в _old_, откуда начинается копирование
+ */
+void copy_file(int old, int new, uint64_t bytes, off_t pos);
+
+/**
+ * Тоже ясно. Процедура для флага "-r"
+ */
+void remove_files(char *archive, int fnums, char **fnames);
+
 int main(int argc, char **argv)
 {
     switch(parse_args(argc, argv))
@@ -261,6 +286,10 @@ int main(int argc, char **argv)
 
         case MODE_EXTRACT:
             extract_files(argv[1], argc-3, argv+3);
+            break;
+
+        case MODE_REMOVE:
+            remove_files(argv[1], argc-3, argv+3);
             break;
 
         case MODE_UNDEF:
@@ -346,6 +375,10 @@ void print_err(enum err_code code)
         case ERR_INPUT_NOAPP:
             errmsg = "Не добавлен ни один указанный файл";
             break;
+
+        case ERR_REMOVE_NOFILES:
+            errmsg = "Не указаны файлы для удаления из архива";
+            break;
     }
 
     if (errno == 0)
@@ -392,7 +425,7 @@ void input_files(char* archive, int fnums, char** fnames)
         print_err(ERR_INPUT_NOAPP);
     }
 
-    update_offsets_in_header_for_input(new_header);
+    update_offsets_in_header(new_header);
     insert_files_routine(new_header, fd, new_fd, fnums, fnames);
 
     remove(archive);
@@ -569,7 +602,7 @@ void insert_files_routine(fi_list_t *header, int fd, int new_fd, int fnums, char
     }
 }
 
-void update_offsets_in_header_for_input(fi_list_t* header)
+void update_offsets_in_header(fi_list_t* header)
 {
     uint64_t raw_off = 0, total_header_nodes = 0;
 
@@ -661,26 +694,9 @@ void extract_files(char *archive, int fnums, char **fnames)
     
     if (fnums != 0)
     {
-        fi_list_t fictive;
-        fictive.eof = 0;
-        fictive.next = header;
-        for (fi_list_t *i = &fictive; !i->next->eof; )
-        {
-            char is_there = 0;
-            for (int j = 0; j < fnums; ++j)
-                is_there |= strcmp((const char*)i->next->data.filename, fnames[j]) == 0;
-
-            if (!is_there)
-            {
-                remove_node_from_fi_list(&fictive, i);
-                header = fictive.next;
-                continue;
-            }
-            i = i->next;
-        }
+        remove_files_from_header(&header, fnums, fnames, 0);
     }
 
-    
     for (fi_list_t *i = header; !i->eof; i = i->next)
     {
         int new_fd = open((const char *)i->data.filename, O_CREAT | O_WRONLY);
@@ -692,23 +708,7 @@ void extract_files(char *archive, int fnums, char **fnames)
         }
         chmod((const char *)i->data.filename, i->data.mask);
 
-        lseek(fd, i->data._offset, SEEK_SET);
-
-        uint64_t bytes = i->data.filesize;
-        char buf[BUFFER_SIZE];
-        while (bytes > BUFFER_SIZE)
-        {
-            read(fd, buf, BUFFER_SIZE);
-            write(new_fd, buf, BUFFER_SIZE);
-            bytes -= BUFFER_SIZE;
-        }
-
-        if (bytes > 0)
-        {
-            read(fd, buf, bytes);
-            write(new_fd, buf, bytes);
-        }
-
+        copy_file(fd, new_fd, i->data.filesize, i->data._offset);
         close(new_fd);
     }
 
@@ -727,3 +727,88 @@ int remove_node_from_fi_list(fi_list_t *h, fi_list_t *to)
     return 0;
 }
 
+void remove_files_from_header(fi_list_t** header, int fnums, char **fnames, char flag)
+{
+    fi_list_t fictive;
+    fictive.eof = 0;
+    fictive.next = *header;
+    for (fi_list_t* i = &fictive; !i->next->eof;)
+    {
+        char is_there = 0;
+        for (int j = 0; j < fnums; ++j)
+            is_there
+                |= strcmp((const char*)i->next->data.filename, fnames[j]) == 0;
+
+        if (flag ? is_there : !is_there)
+        {
+            remove_node_from_fi_list(&fictive, i);
+            *header = fictive.next;
+            continue;
+        }
+        i = i->next;
+    }
+}
+
+void remove_files(char *archive, int fnums, char **fnames)
+{
+    if (fnums == 0)
+    {
+        print_err(ERR_REMOVE_NOFILES);
+    }
+
+    int arch_fd = open(archive, O_RDONLY);
+    if (arch_fd == -1)
+    {
+        print_err(ERR_OPEN);
+    }
+
+    const char* temp_file_name = ".supertemp.egleser";
+    int new_fd = open(temp_file_name, O_CREAT | O_WRONLY, 0666);
+
+    // new_header - то, что будет записано в заголовок нового архива
+    // old_header - то же самое, но со старыми оффсетами. Мы будем обходить его
+    // и писать содержимое старого архива в новый
+    fi_list_t *new_header = init_fi_list(), *old_header = init_fi_list();
+    read_header(new_header, arch_fd);
+    read_header(old_header, arch_fd);
+    remove_files_from_header(&new_header, fnums, fnames, 1);
+    remove_files_from_header(&old_header, fnums, fnames, 1);
+    update_offsets_in_header(new_header);
+
+    for (fi_list_t* i = new_header; !i->eof; i = i->next)
+    {
+        write(new_fd, &i->data, sizeof(file_info_t));
+    }
+    uint32_t end = 0;
+    write(new_fd, &end, HEADER_ENDING_SIZE);
+
+    for (fi_list_t* i = old_header; !i->eof; i = i->next)
+    {
+        copy_file(arch_fd, new_fd, i->data.filesize, i->data._offset);
+    }
+
+    remove(archive);
+    rename(temp_file_name, archive);
+    free_fi_list(new_header);
+    free_fi_list(old_header);
+    close(arch_fd);
+    close(new_fd);
+}
+
+void copy_file(int old, int new, uint64_t bytes, off_t pos)
+{
+    lseek(old, pos, SEEK_SET);
+    char buf[BUFFER_SIZE];
+    while (bytes > BUFFER_SIZE)
+    {
+        read(old, buf, BUFFER_SIZE);
+        write(new, buf, BUFFER_SIZE);
+        bytes -= BUFFER_SIZE;
+    }
+
+    if (bytes > 0)
+    {
+        read(old, buf, bytes);
+        write(new, buf, bytes);
+    }
+}
