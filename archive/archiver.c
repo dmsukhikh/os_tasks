@@ -656,12 +656,12 @@ void stat_archive(char* archive)
     }
 
     printf("--- Архив: %s ---\n", archive);
-    printf("%-*s %-*s\n", name_align + 4, "Файл", size_align + 6, "Размер");
+    printf("%-*s %-*s\n", name_align + 4 + 1, "Файл", size_align + 6 + 1, "Размер");
     for (fi_list_t* i = h; !i->eof; i = i->next)
     {
         char buf[HR_FS_BUFFER_SIZE];
         hr_file_size(i->data.filesize, buf);
-        printf("%-*s %-*s\n", name_align, i->data.filename, size_align, buf);
+        printf("%-*s %-*s\n", name_align + 1, i->data.filename, size_align + 1, buf);
     }
 }
 
